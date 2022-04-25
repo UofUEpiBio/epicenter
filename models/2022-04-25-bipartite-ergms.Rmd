@@ -1,0 +1,366 @@
+---
+title: "Untitled"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r packages, message=FALSE, warning=FALSE}
+library(network)
+library(igraph)
+library(data.table)
+library(ergm)
+library(netplot)
+```
+
+# Data Preparation
+
+```{r read-clean}
+# Reading the data in
+dat <- fread("data/Matched Interaction and Resident.csv")
+
+# HCW data
+cnames <- colnames(dat)
+cnames[grepl("hcw", cnames, ignore.case = TRUE)]
+```
+
+```{r}
+# Function to collapse multiple fields into a single string
+# keeping only alphanumeric characters.
+namemilize <- function(...) {
+  do.call(
+    paste,
+    c(lapply(list(...), \(x) gsub("[^[:alnum:]]", "_", trimws(x))),
+      list(sep = "-"))
+  ) |>
+    tolower() |>
+    gsub(pattern = "_+", replacement = "_")
+  
+}
+
+# Getting nodes
+dat[, loc_id := namemilize(state, date, Fac_Name, Fac_Unit)]
+```
+
+We noticed that for some records (7) the resident ID coincides with the room id:
+
+```{r}
+dat[room_num == res_id, .(room_num, res_id)]
+```
+
+For now, we will remove those records
+
+```{r}
+dat <- dat[room_num != res_id]
+```
+
+
+Now that we have idividual ids for the unit/location, we can start creating the
+network data:
+
+```{r}
+# Edgelist
+edges <- dat[, .(
+  loc_id, state, date, Fac_Name, Fac_Unit, hcw_id, hcw_type, res_id,
+  res_age, race
+  )]
+
+# Nodes dataset
+nodes <- rbind(
+  edges[, .(
+    id = hcw_id,
+    loc_id, state, Fac_Name, Fac_Unit,
+    race = "", res_age = 0,
+    type = hcw_type, group = "hcw")],
+  edges[, .(
+    id = res_id,
+    loc_id, state, Fac_Name, Fac_Unit,
+    race, res_age,
+    type = "resident", group = "residents")]
+) |> unique()
+```
+
+## Duplicated records (hcw)
+
+```{r check-dpls}
+setorder(nodes, loc_id, id)
+nodes[, n := .N, by = .(loc_id, id)][n > 1 & group == "hcw", .(id, type)]
+```
+
+We can see in the data that the duplicated records here (currently 12) are in
+its majority if type "Nurse" or "CNA" (certified nurse assistant.) We will 
+replace those with "Nurse."
+
+```{r check-dpls-replace}
+nodes[
+  n > 1 & group == "hcw" & any(type %in% c("Nurse", "CNA")),
+  type := "Nurse",
+  by = .(loc_id, id)
+  ]
+```
+
+## Duplicated records (residents)
+
+```{r check-dpls-residents}
+nodes[n > 1 & group == "residents"][1:10 ,.(id, race, res_age)]
+```
+
+Most of the duplicates are in age. For now we will take the mean and use that
+as the observed age. Notice that, while most cases the duplicates have ages that
+show little differences, e.g., one or two years, there are some cases with large
+age gaps, e.g., 20 years.
+
+```{r check-dpls-residents-fix}
+nodes[
+  n > 1 & group == "residents",
+  res_age := floor(mean(res_age, na.rm = TRUE)),
+  by = .(loc_id, id)
+  ]
+```
+
+## Checking no duplicates exists
+
+After the data pre-processing, let's check whether the duplicates are now gone
+
+```{r}
+nodes <- unique(nodes)
+nodes[, n := .N, by = .(loc_id, id)]
+table(nodes[, n])
+```
+
+Still ten (actually five) observations that are duplicated twice each:
+
+```{r}
+nodes[n > 1, .(id, race, n)]
+```
+
+In this case, the observations have differences in race, e.g., the first of them
+registers both "White" and "Black or African American." Since we cannot corretly
+identify which is the correct, we will set them as "NK - Not Known."
+
+```{r}
+nodes[n > 1, race := "NK - Not Known"]
+nodes <- unique(nodes)
+nodes[, n := NULL]
+```
+
+Observations with missing race or age will be droped.
+
+```{r}
+nodes <- nodes[!is.na(race) & !is.na(res_age)]
+```
+
+Finally, we need to make sure that edges match the nodes
+
+```{r}
+edges <- merge(
+  edges, nodes[, .(id, loc_id, here_hcw = TRUE)],
+  by.x = c("hcw_id", "loc_id"), 
+  by.y = c("id", "loc_id"), all.x = TRUE, all.y = FALSE
+)
+
+edges <- merge(
+  edges, nodes[, .(id, loc_id, here_res = TRUE)],
+  by.x = c("res_id", "loc_id"), 
+  by.y = c("id", "loc_id"), all.x = TRUE, all.y = FALSE
+)
+
+edges[, here_hcw := fcoalesce(here_hcw, FALSE)]
+edges[, here_res := fcoalesce(here_res, FALSE)]
+edges <- edges[here_hcw & here_res]
+
+edges[, c("here_hcw", "here_res") := c(NULL, NULL)]
+```
+
+
+# Building the networks
+
+```{r build-nets}
+# Making room to store the networks, we will keep two types of
+# networks: HCW - Patient
+networks <- vector("list", length(unique(nodes$loc_id)))
+names(networks) <- unique(nodes$loc_id)
+networks_proj <- networks
+
+nerrors <- 0L
+for (n in names(networks)) {
+  
+  edges_n <- edges[loc_id == n, .(hcw_id, res_id)]
+  
+  nodes_hcw_n <- nodes[loc_id == n & group == "hcw"]
+  nodes_res_n <- nodes[loc_id == n & group == "residents"]
+  
+  # Trying to read the data
+  networks[[n]] <- tryCatch(matrix(
+    0L, nrow = nrow(nodes_hcw_n), ncol = nrow(nodes_res_n),
+    dimnames = list(nodes_hcw_n$id, nodes_res_n$id)
+    ))
+  
+  # Notification!
+  if (inherits(networks[[n]], what = "error")) {
+    message("Network ", n, " failed to be built")
+    nerrors <- nerrors + 1L
+    next
+  }
+  
+  # Building the bipartite network
+  networks[[n]][as.matrix(edges_n)] <- 1L
+  networks[[n]] <- network(
+    networks[[n]], bipartite = TRUE,
+    vertex.attr = rbind(nodes_hcw_n, nodes_res_n)
+    )
+  
+}
+
+message("Done! ", nerrors, "/", length(networks), " failed.")
+```
+
+```{r viz}
+# Example of a graph
+set.seed(1231)
+nplot(
+  networks[[1L]],
+  edge.curvature=0,
+  vertex.color = c(
+    hcw = "blue", residents = "green"
+    )[networks[[1L]] %v% "group"]
+  )
+```
+
+# Fitting ERGMs
+
+## Single network ERGMs
+
+First, we start with structural models
+
+```{r ergms, message=FALSE, warning=FALSE}
+# Projection networks ----------------------------------------------------------
+res_2star <- ergm(networks[[1L]] ~ edges + b1star(2))
+res_2and3star <- ergm(networks[[1L]] ~ edges + b1star(2:3))
+res_3star <- ergm(networks[[1L]] ~ edges + b1star(3))
+```
+
+```{r struct-table, results='asis', echo = FALSE}
+texreg::knitreg(
+  list(
+    "2-b1star" = res_2star,
+    "2 and 3-b1star" = res_2and3star,
+    "3-b1star" = res_3star
+    )
+)
+```
+
+## Single model with multiple networks
+
+```{r multi-to-single}
+bignet <- Map(\(n,e) {
+  
+  # Creating the baseline data
+  el <- list(
+    edges = as.data.frame(n, unit = "edges"),
+    # Second column matches the first, so we remove it
+    nodes = as.data.frame(n, unit = "vertices")[,-1L] 
+  )
+  
+  # Appending the id of the dataset to avoid duplicates
+  el$edges$.head <- paste0(el$edges$.head, e)
+  el$edges$.tail <- paste0(el$edges$.tail, e)
+  el$nodes$id <- paste0(el$nodes$id, e)
+  
+  # Returning
+  el
+}, n = networks, e = names(networks))
+
+bignet <- list(
+  edges = data.table(do.call(rbind, lapply(bignet, "[[", "edges"))),
+  nodes = data.table(do.call(rbind, lapply(bignet, "[[", "nodes")))
+)
+
+bignet_mat <- with(bignet, matrix(
+  0L,
+  nrow = nrow(nodes[group == "hcw"]),
+  ncol = nrow(nodes[group == "residents"]),
+  dimnames = list(nodes[group == "hcw"]$id, nodes[group == "residents"]$id)
+))
+
+bignet_mat[with(bignet$edges, cbind(.head, .tail))] <- 1L
+
+bignet_mat <- network(
+  bignet_mat,
+  vertex.attr = bignet$nodes, bipartite = TRUE
+)
+```
+
+<!-- Since the resulting network is large, we will start by looking at a sample subset: -->
+
+
+<!-- ```{r eval = FALSE} -->
+<!-- set.seed(8828) -->
+<!-- bignet_sub <- sample(names(networks), size = 20) -->
+<!-- bignet_sub <- which(bignet_mat %v% "loc_id" %in% bignet_sub) -->
+<!-- bignet_sub <- get.inducedSubgraph(bignet_mat, v = bignet_sub) -->
+
+<!-- nplot( -->
+<!--   bignet_sub, -->
+<!--   vertex.nsides = c( -->
+<!--     hcw = 3, residents = 4 -->
+<!--   )[bignet_mat %v% "group"], -->
+<!--   vertex.color = c( -->
+<!--     hcw = "blue", residents = "green" -->
+<!--     )[bignet_mat %v% "group"], -->
+<!--   edge.curvature = 0, -->
+<!--   edge.line.breaks = 1L, -->
+<!--   skip.vertex = TRUE -->
+<!--   ) -->
+<!-- ``` -->
+
+Common controls for all models
+
+```{r}
+default_control <- list(
+  main.method     = "MCMLE",
+  MCMC.samplesize	= 1024 * 4,
+  # MCMC.interval   = 1024 * 4,
+  parallel        = 2L
+)
+```
+
+
+
+```{r model0, cache = TRUE, message=FALSE, warning=FALSE}
+res_big_ergm0 <- ergm(
+  bignet_mat ~ edges,
+  control = do.call("control.ergm", c(default_control, list(init = c(-2)))),
+  constraints = ~ blockdiag("loc_id")
+  )
+```
+
+
+
+```{r model1, cache = TRUE, message=FALSE, warning=FALSE}
+res_big_ergm1 <- ergm(
+  bignet_mat ~ edges + b1nodematch("race"),
+  control = do.call("control.ergm", c(default_control, list(init = c(-2,2)))),
+  constraints = ~ blockdiag("loc_id")
+  )
+```
+
+```{r model2, cache = TRUE, message=FALSE, warning=FALSE}
+res_big_ergm2 <- ergm(
+  bignet_mat ~ edges + b1nodematch("race") + b2star(2),
+  control = do.call("control.ergm", c(default_control, list(init = c(-2,2,2)))),
+  constraints = ~ blockdiag("loc_id")
+  )
+```
+
+
+```{r models-print-big, results='asis', echo=FALSE, message=FALSE, warning=FALSE}
+texreg::knitreg(
+  list(res_big_ergm0,res_big_ergm1,res_big_ergm2)
+)
+```
+
+
+
