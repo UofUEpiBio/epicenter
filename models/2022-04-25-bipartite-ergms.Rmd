@@ -266,6 +266,8 @@ bignet <- Map(\(n,e) {
   el$edges$.tail <- paste0(e, ".", el$edges$.tail)
   el$nodes$vertex.names <- paste0(e, ".", el$nodes$vertex.names)
   
+  el$nodes$nvertex <- nrow(el$nodes)
+  
   # Returning
   el
 }, n = networks, e = names(networks))
@@ -331,6 +333,13 @@ res_big_ergm0 <- ergm(
   # control = do.call("control.ergm", c(default_control, list(init = c(-5)))),
   offset.coef = rep(-Inf, 100)
   )
+```
+
+We can also use Krivitsky (2011) offset
+
+```{r}
+nnodes <- summary(bignet_mat ~ degrange(0, by = "loc_id"))
+summary(bignet_mat ~ edges + Sum(rep(.1, 100) ~ Log(~Prod(-1~b2degrange(0, by = "loc_id"), "a")), "a")) 
 ```
 
 
