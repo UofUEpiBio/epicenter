@@ -62,23 +62,22 @@ network data:
 
 ```{r}
 # Edgelist
-edges <- dat[, .(
-  loc_id, state, date, Fac_Name, Fac_Unit, hcw_id, hcw_type, res_id,
-  res_age, race
-  )]
+edges <- unique(dat[, .(loc_id, hcw_id, res_id)])
 
 # Nodes dataset
 nodes <- rbind(
-  edges[, .(
+  dat[, .(
     id = hcw_id,
     loc_id, state, Fac_Name, Fac_Unit,
     race = "", res_age = 0,
-    type = hcw_type, group = "hcw")],
-  edges[, .(
+    type = hcw_type, group = "hcw",
+    is_actor = TRUE)],
+  dat[, .(
     id = res_id,
     loc_id, state, Fac_Name, Fac_Unit,
     race, res_age,
-    type = "resident", group = "residents")]
+    type = "resident", group = "residents",
+    is_actor = FALSE)]
 ) |> unique()
 ```
 
@@ -193,10 +192,14 @@ for (n in names(networks)) {
   nodes_res_n <- nodes[loc_id == n & group == "residents"]
   
   # Trying to read the data
-  networks[[n]] <- tryCatch(matrix(
-    0L, nrow = nrow(nodes_hcw_n), ncol = nrow(nodes_res_n),
-    dimnames = list(nodes_hcw_n$id, nodes_res_n$id)
-    ))
+  networks[[n]] <- tryCatch({
+    suppressWarnings(as.network(
+      x         = edges_n,
+      vertices  = rbind(nodes_hcw_n, nodes_res_n),
+      bipartite = TRUE,
+      bipartite_col = "is_actor"
+      ))
+  }, error = function(e) e)
   
   # Notification!
   if (inherits(networks[[n]], what = "error")) {
@@ -205,13 +208,7 @@ for (n in names(networks)) {
     next
   }
   
-  # Building the bipartite network
-  networks[[n]][as.matrix(edges_n)] <- 1L
-  networks[[n]] <- network(
-    networks[[n]], bipartite = TRUE,
-    vertex.attr = rbind(nodes_hcw_n, nodes_res_n)
-    )
-  
+
 }
 
 message("Done! ", nerrors, "/", length(networks), " failed.")
@@ -261,13 +258,13 @@ bignet <- Map(\(n,e) {
   el <- list(
     edges = as.data.frame(n, unit = "edges"),
     # Second column matches the first, so we remove it
-    nodes = as.data.frame(n, unit = "vertices")[,-1L] 
+    nodes = as.data.frame(n, unit = "vertices") #[,-1L] 
   )
   
   # Appending the id of the dataset to avoid duplicates
-  el$edges$.head <- paste0(el$edges$.head, e)
-  el$edges$.tail <- paste0(el$edges$.tail, e)
-  el$nodes$id <- paste0(el$nodes$id, e)
+  el$edges$.head <- paste0(e, ".", el$edges$.head)
+  el$edges$.tail <- paste0(e, ".", el$edges$.tail)
+  el$nodes$vertex.names <- paste0(e, ".", el$nodes$vertex.names)
   
   # Returning
   el
@@ -278,19 +275,16 @@ bignet <- list(
   nodes = data.table(do.call(rbind, lapply(bignet, "[[", "nodes")))
 )
 
-bignet_mat <- with(bignet, matrix(
-  0L,
-  nrow = nrow(nodes[group == "hcw"]),
-  ncol = nrow(nodes[group == "residents"]),
-  dimnames = list(nodes[group == "hcw"]$id, nodes[group == "residents"]$id)
-))
-
-bignet_mat[with(bignet$edges, cbind(.head, .tail))] <- 1L
-
-bignet_mat <- network(
-  bignet_mat,
-  vertex.attr = bignet$nodes, bipartite = TRUE
+bignet_mat <- as.network(
+  x         = bignet$edges,
+  vertices  = bignet$nodes,
+  bipartite = TRUE,
+  bipartite_col = "is_actor"
 )
+
+# Comparing we are getting the same thing
+get.inducedSubgraph(bignet_mat, which((bignet_mat %v% "loc_id") == names(networks)[1]))
+networks[[1]]
 ```
 
 <!-- Since the resulting network is large, we will start by looking at a sample subset: -->
@@ -327,12 +321,23 @@ default_control <- list(
 )
 ```
 
+For some reason, the initial guess through MPLE is not working for bipartite networks
+with a block-diagonal structure. For now, we will get the first guess using bi-partite
+ERGM with offset terms.
+
+```{r model0-pre, cache=TRUE, message=FALSE, warning=FALSE}
+res_big_ergm0 <- ergm(
+  bignet_mat ~ edges + offset(nodematch("loc_id", diff = TRUE)),
+  # control = do.call("control.ergm", c(default_control, list(init = c(-5)))),
+  offset.coef = rep(-Inf, 100)
+  )
+```
 
 
 ```{r model0, cache = TRUE, message=FALSE, warning=FALSE}
 res_big_ergm0 <- ergm(
   bignet_mat ~ edges,
-  control = do.call("control.ergm", c(default_control, list(init = c(-2)))),
+  control = do.call("control.ergm", c(default_control, list(init = -1))),
   constraints = ~ blockdiag("loc_id")
   )
 ```
@@ -342,7 +347,7 @@ res_big_ergm0 <- ergm(
 ```{r model1, cache = TRUE, message=FALSE, warning=FALSE}
 res_big_ergm1 <- ergm(
   bignet_mat ~ edges + b1nodematch("race"),
-  control = do.call("control.ergm", c(default_control, list(init = c(-2,2)))),
+  control = do.call("control.ergm", default_control),
   constraints = ~ blockdiag("loc_id")
   )
 ```
@@ -350,7 +355,7 @@ res_big_ergm1 <- ergm(
 ```{r model2, cache = TRUE, message=FALSE, warning=FALSE}
 res_big_ergm2 <- ergm(
   bignet_mat ~ edges + b1nodematch("race") + b2star(2),
-  control = do.call("control.ergm", c(default_control, list(init = c(-2,2,2)))),
+  control = do.call("control.ergm", c(default_control, list(init = c(-2,0,0)))),
   constraints = ~ blockdiag("loc_id")
   )
 ```
