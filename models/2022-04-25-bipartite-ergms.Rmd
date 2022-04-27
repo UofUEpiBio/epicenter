@@ -330,47 +330,78 @@ ERGM with offset terms.
 ```{r model0-pre, cache=TRUE, message=FALSE, warning=FALSE}
 res_big_ergm0 <- ergm(
   bignet_mat ~ edges + offset(nodematch("loc_id", diff = TRUE)),
-  # control = do.call("control.ergm", c(default_control, list(init = c(-5)))),
+  control = do.call("control.ergm", c(default_control, list(init = c(-5, rep(-Inf, 100))))),
   offset.coef = rep(-Inf, 100)
   )
 ```
 
-We can also use Krivitsky (2011) offset
+We can also use Krivitsky (2011) offset. To do this we use the new functions included
+in `ergm` 4.0, in particular, the `Sum()` term. With it, we can create an offset
+in the form:
+
+$$
+\text{Krivitsky2011}(\mathbf{G}) = \sum_{i} \text{edges}_i\times\ln\left({1/n_i}\right)
+$$
+
+Where $n_i$ is the number of vertices in network $i$. To achieve this, we will
+(a) compute the values $\ln\left({1/n_i}\right)$ separately, and (b) use that
+vector to pre-multiply the vector of edgecounts at the graph level. We can get
+an edgecount at the graph level using the `b1factor()` term with the option
+`levels = TRUE`. The following codeblock achieves this:
 
 ```{r}
-nnodes <- summary(bignet_mat ~ degrange(0, by = "loc_id"))
-summary(bignet_mat ~ edges + Sum(rep(.1, 100) ~ Log(~Prod(-1~b2degrange(0, by = "loc_id"), "a")), "a")) 
+# log(1/n) part of the term
+log_inv_n <- log(1/summary(bignet_mat ~ degrange(0, by = "loc_id")))
+
+# Let's see how it looks
+summary(
+  bignet_mat ~
+    edges +
+    Sum("sum" ~ Sum(log_inv_n ~ b1factor("loc_id", levels=TRUE), "a"), "krivitsky2011" )
+)
 ```
 
+Let's see how it is implemented in an ERGM. Remember that we need to set the 
+term as an offset:
 
 ```{r model0, cache = TRUE, message=FALSE, warning=FALSE}
 res_big_ergm0 <- ergm(
-  bignet_mat ~ edges,
-  control = do.call("control.ergm", c(default_control, list(init = -1))),
+  bignet_mat ~ edges +
+    Offset(~Sum("sum" ~ Sum(log_inv_n ~ b1factor("loc_id", levels=TRUE), "a"), "krivitsky2011" ), 1),
+  control = do.call("control.ergm", c(default_control)),
   constraints = ~ blockdiag("loc_id")
   )
 ```
 
+Interpretation of the `edges` term needs to be done in the context of this offset
+term. For example, since $\theta_{edges} =$ `r sprintf("%.2f", coef(res_big_ergm0)[1])`,
+the density in a Bernoulli graph with 100 nodes is
+$\text{logit}^{-1}\left(\theta_{edges} + \ln\left(1/100\right)\right)\approx$
+`r sprintf("%.2f", plogis(-log(100) + coef(res_big_ergm0[1])))`.
 
+
+Second model, Using homophily in race:
 
 ```{r model1, cache = TRUE, message=FALSE, warning=FALSE}
 res_big_ergm1 <- ergm(
-  bignet_mat ~ edges + b1nodematch("race"),
-  control = do.call("control.ergm", default_control),
+  bignet_mat ~ edges + b1nodematch("race") + 
+    Offset(~Sum("sum" ~ Sum(log_inv_n ~ b1factor("loc_id", levels=TRUE), "a"), "krivitsky2011" ), 1),
+  # control = do.call("control.ergm", default_control),
   constraints = ~ blockdiag("loc_id")
   )
 ```
 
-```{r model2, cache = TRUE, message=FALSE, warning=FALSE}
+```{r model2, cache = TRUE, message=FALSE, warning=FALSE, eval = FALSE}
 res_big_ergm2 <- ergm(
-  bignet_mat ~ edges + b1nodematch("race") + b2star(2),
-  control = do.call("control.ergm", c(default_control, list(init = c(-2,0,0)))),
+  bignet_mat ~ edges + b1nodematch("race") + b1star(2) + 
+    Offset(~Sum("sum" ~ Sum(log_inv_n ~ b1factor("loc_id", levels=TRUE), "a"), "krivitsky2011" ), 1),
+  # control = do.call("control.ergm", c(default_control, list(init = c(-2,0,0)))),
   constraints = ~ blockdiag("loc_id")
   )
 ```
 
 
-```{r models-print-big, results='asis', echo=FALSE, message=FALSE, warning=FALSE}
+```{r models-print-big, results='asis', echo=FALSE, message=FALSE, warning=FALSE, eval = FALSE}
 texreg::knitreg(
   list(res_big_ergm0,res_big_ergm1,res_big_ergm2)
 )
