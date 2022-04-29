@@ -26,6 +26,13 @@ cnames <- colnames(dat)
 cnames[grepl("hcw", cnames, ignore.case = TRUE)]
 ```
 
+Creating a few covariates to be used in the ERGM
+
+```{r}
+dat[, white := fifelse(!is.na(race), as.integer(race == "White"), NA_integer_)]
+```
+
+
 ```{r}
 # Function to collapse multiple fields into a single string
 # keeping only alphanumeric characters.
@@ -69,12 +76,14 @@ nodes <- rbind(
   dat[, .(
     id = hcw_id,
     loc_id, state, Fac_Name, Fac_Unit,
+    white = 0L,
     race = "", res_age = 0,
     type = hcw_type, group = "hcw",
     is_actor = TRUE)],
   dat[, .(
     id = res_id,
     loc_id, state, Fac_Name, Fac_Unit,
+    white,
     race, res_age,
     type = "resident", group = "residents",
     is_actor = FALSE)]
@@ -140,7 +149,7 @@ registers both "White" and "Black or African American." Since we cannot corretly
 identify which is the correct, we will set them as "NK - Not Known."
 
 ```{r}
-nodes[n > 1, race := "NK - Not Known"]
+nodes[n > 1, c("race", "white") := list("NK - Not Known", 2L)]
 nodes <- unique(nodes)
 nodes[, n := NULL]
 ```
@@ -234,17 +243,32 @@ First, we start with structural models
 
 ```{r ergms, message=FALSE, warning=FALSE}
 # Projection networks ----------------------------------------------------------
-res_2star <- ergm(networks[[1L]] ~ edges + b1star(2))
-res_2and3star <- ergm(networks[[1L]] ~ edges + b1star(2:3))
-res_3star <- ergm(networks[[1L]] ~ edges + b1star(3))
+log_n_inv <- log(1/network.size(networks[[1L]]))
+res_b12star <- ergm(
+  networks[[1L]] ~ edges +
+    Offset(~Prod(log_n_inv ~ edges, "k"), 1) +
+    b1star(2)
+  )
+
+res_b22star <- ergm(
+  networks[[1L]] ~ edges +
+    Offset(~Prod(log_n_inv ~ edges, "k"), 1) +
+    b2star(2)
+  )
+
+res_b12starb22star <- ergm(
+  networks[[1L]] ~ edges +
+    Offset(~Prod(log_n_inv ~ edges, "k"), 1) +
+    b1star(2) + b2star(2)
+  )
 ```
 
 ```{r struct-table, results='asis', echo = FALSE}
 texreg::knitreg(
   list(
-    "2-b1star" = res_2star,
-    "2 and 3-b1star" = res_2and3star,
-    "3-b1star" = res_3star
+    "2-b1star" = res_b12star,
+    "2-b2star" = res_b22star,
+    "3-b1star" = res_b12starb22star
     )
 )
 ```
@@ -316,23 +340,11 @@ Common controls for all models
 
 ```{r}
 default_control <- list(
-  main.method     = "MCMLE",
-  MCMC.samplesize	= 1024 * 4,
+  main.method     = "Stochastic-Approximation",
+  MCMC.samplesize	= 1024 * 4 #,
   # MCMC.interval   = 1024 * 4,
-  parallel        = 2L
+  # parallel        = 2L
 )
-```
-
-For some reason, the initial guess through MPLE is not working for bipartite networks
-with a block-diagonal structure. For now, we will get the first guess using bi-partite
-ERGM with offset terms.
-
-```{r model0-pre, cache=TRUE, message=FALSE, warning=FALSE}
-res_big_ergm0 <- ergm(
-  bignet_mat ~ edges + offset(nodematch("loc_id", diff = TRUE)),
-  control = do.call("control.ergm", c(default_control, list(init = c(-5, rep(-Inf, 100))))),
-  offset.coef = rep(-Inf, 100)
-  )
 ```
 
 We can also use Krivitsky (2011) offset. To do this we use the new functions included
@@ -377,33 +389,78 @@ Interpretation of the `edges` term needs to be done in the context of this offse
 term. For example, since $\theta_{edges} =$ `r sprintf("%.2f", coef(res_big_ergm0)[1])`,
 the density in a Bernoulli graph with 100 nodes is
 $\text{logit}^{-1}\left(\theta_{edges} + \ln\left(1/100\right)\right)\approx$
-`r sprintf("%.2f", plogis(-log(100) + coef(res_big_ergm0[1])))`.
+`r sprintf("%.2f", plogis(-log(100) + coef(res_big_ergm0[1])))`. Looking into
+stars from the second level (one resident -- two healthcare workers.)
+
+```{r model1}
+res_big_ergm1 <- ergm(
+  bignet_mat ~ edges +
+    b2star(2) + 
+    Offset(~Sum("sum" ~ Sum(log_inv_n ~ b1factor("loc_id", levels=TRUE), "a"), "krivitsky2011" ), 1),
+  control = do.call("control.ergm", c(default_control)),
+  constraints = ~ blockdiag("loc_id")
+  )
+```
 
 
 Second model, Using homophily in race:
 
-```{r model1, cache = TRUE, message=FALSE, warning=FALSE}
-res_big_ergm1 <- ergm(
-  bignet_mat ~ edges + b1nodematch("race") + 
-    Offset(~Sum("sum" ~ Sum(log_inv_n ~ b1factor("loc_id", levels=TRUE), "a"), "krivitsky2011" ), 1),
-  # control = do.call("control.ergm", default_control),
-  constraints = ~ blockdiag("loc_id")
-  )
-```
-
-```{r model2, cache = TRUE, message=FALSE, warning=FALSE, eval = FALSE}
+```{r model2, cache = TRUE, message=FALSE, warning=FALSE}
 res_big_ergm2 <- ergm(
-  bignet_mat ~ edges + b1nodematch("race") + b1star(2) + 
-    Offset(~Sum("sum" ~ Sum(log_inv_n ~ b1factor("loc_id", levels=TRUE), "a"), "krivitsky2011" ), 1),
-  # control = do.call("control.ergm", c(default_control, list(init = c(-2,0,0)))),
+  bignet_mat ~ edges + 
+    b2star(2) + 
+    b1starmix(2, "race") + 
+    Offset(~Sum("sum" ~ Sum(log_inv_n ~ b1factor("loc_id", levels=TRUE), "a"), "krivitsky2011" ), 1), 
+  control = do.call("control.ergm", default_control),
   constraints = ~ blockdiag("loc_id")
   )
 ```
 
+```{r model3, cache = TRUE, message=FALSE, warning=FALSE, eval = FALSE}
+res_big_ergm3 <- ergm(
+  bignet_mat ~ edges + 
+    b2star(2) + 
+    b1starmix(2, "white") + 
+    b1dsp(1:2) + 
+    Offset(~Sum("sum" ~ Sum(log_inv_n ~ b1factor("loc_id", levels=TRUE), "a"), "krivitsky2011" ), 1),
+  control = do.call("control.ergm", default_control),
+  constraints = ~ blockdiag("loc_id")
+  )
+```
+
+```{r model4, cache = TRUE, message=FALSE, warning=FALSE, eval = FALSE}
+res_big_ergm4 <- ergm(
+  bignet_mat ~ edges + 
+    b2star(2) + 
+    b2starmix(2, "type") + 
+    Offset(~Sum("sum" ~ Sum(log_inv_n ~ b1factor("loc_id", levels=TRUE), "a"), "krivitsky2011" ), 1),
+  control = do.call("control.ergm", default_control),
+  constraints = ~ blockdiag("loc_id")
+  )
+```
+
+```{r model5, cache = TRUE, message=FALSE, warning=FALSE, eval = FALSE}
+res_big_ergm5 <- ergm(
+  bignet_mat ~ edges + 
+    b2star(2) + 
+    b1dsp(1:2) +
+    b2cov("res_age") +
+    Offset(~Sum("sum" ~ Sum(log_inv_n ~ b1factor("loc_id", levels=TRUE), "a"), "krivitsky2011" ), 1),
+  control = do.call("control.ergm", default_control),
+  constraints = ~ blockdiag("loc_id")
+  )
+```
 
 ```{r models-print-big, results='asis', echo=FALSE, message=FALSE, warning=FALSE, eval = FALSE}
 texreg::knitreg(
-  list(res_big_ergm0,res_big_ergm1,res_big_ergm2)
+  list(
+    res_big_ergm0,
+    res_big_ergm1,
+    res_big_ergm2,
+    res_big_ergm3,
+    res_big_ergm4,
+    res_big_ergm5
+    )
 )
 ```
 
