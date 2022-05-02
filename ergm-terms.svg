@@ -1,0 +1,400 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="194.20424mm"
+   height="457.57938mm"
+   viewBox="0 0 194.20424 457.57938"
+   version="1.1"
+   id="svg5"
+   inkscape:version="1.1.2 (1:1.1+202202050950+0a00cf5339)"
+   sodipodi:docname="ergm-terms.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview7"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:document-units="mm"
+     showgrid="false"
+     inkscape:lockguides="true"
+     inkscape:snap-center="true"
+     inkscape:zoom="0.59059924"
+     inkscape:cx="327.63334"
+     inkscape:cy="954.11569"
+     inkscape:window-width="1920"
+     inkscape:window-height="1016"
+     inkscape:window-x="0"
+     inkscape:window-y="27"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs2" />
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="translate(-21.293592,-5.3762071)">
+    <g
+       id="g2769"
+       transform="matrix(0.512,0,0,0.512,26.952437,3.6353249)"
+       style="fill:#b2b2b2;fill-opacity:1;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       inkscape:export-filename="/home/george/Documents/research/epicenter/fig/term-actor-twostar.png"
+       inkscape:export-xdpi="170.81"
+       inkscape:export-ydpi="170.81">
+      <rect
+         style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="rect846"
+         width="30"
+         height="30"
+         x="26.395472"
+         y="94.978897" />
+      <ellipse
+         style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="path950"
+         cx="100.23753"
+         cy="80.38063"
+         rx="14.98252"
+         ry="14.982519" />
+      <ellipse
+         style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="path950-1"
+         cx="100.23753"
+         cy="139.57715"
+         rx="14.98252"
+         ry="14.982519" />
+      <path
+         style="fill:#b2b2b2;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+         d="M 56.395472,102.43372 86.852947,87.113239"
+         id="path1368"
+         inkscape:connector-type="polyline"
+         inkscape:connector-curvature="0"
+         inkscape:connection-start="#rect846"
+         inkscape:connection-end="#path950" />
+      <path
+         style="fill:#b2b2b2;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+         d="m 56.395472,117.52407 30.457474,15.32047"
+         id="path1370"
+         inkscape:connector-type="polyline"
+         inkscape:connector-curvature="0"
+         inkscape:connection-start="#rect846"
+         inkscape:connection-end="#path950-1" />
+    </g>
+    <g
+       id="g2776"
+       transform="matrix(-0.512,0,0,0.512,98.872442,58.739245)"
+       style="fill:#b2b2b2;fill-opacity:1;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       inkscape:export-filename="/home/george/Documents/research/epicenter/fig/term-entity-twostar.png"
+       inkscape:export-xdpi="170.81"
+       inkscape:export-ydpi="170.81">
+      <rect
+         style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="rect846-8-3-5"
+         width="30"
+         height="30"
+         x="-53.873863"
+         y="243.77805"
+         transform="scale(-1,1)" />
+      <ellipse
+         style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="path950-5-8"
+         cx="-97.715927"
+         cy="229.17981"
+         rx="14.98252"
+         ry="14.982519"
+         transform="scale(-1,1)" />
+      <rect
+         style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="rect846-8-3"
+         width="30"
+         height="30"
+         x="-53.873863"
+         y="184.58154"
+         transform="scale(-1,1)" />
+      <path
+         style="fill:#b2b2b2;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+         d="m 53.873863,251.23287 30.45752,-15.32048"
+         id="path2680"
+         inkscape:connector-type="polyline"
+         inkscape:connector-curvature="0"
+         inkscape:connection-start="#rect846-8-3-5"
+         inkscape:connection-end="#path950-5-8" />
+      <path
+         style="fill:#b2b2b2;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+         d="m 53.873863,207.12672 30.457523,15.3205"
+         id="path2682"
+         inkscape:connector-type="polyline"
+         inkscape:connector-curvature="0"
+         inkscape:connection-start="#rect846-8-3"
+         inkscape:connection-end="#path950-5-8" />
+    </g>
+    <text
+       xml:space="preserve"
+       style="font-size:4.33494px;line-height:1.25;font-family:'Latin Modern Sans';-inkscape-font-specification:'Latin Modern Sans';stroke-width:0.79375;stroke-miterlimit:4;stroke-dasharray:none"
+       x="25.357714"
+       y="9.2441912"
+       id="text4602"><tspan
+         sodipodi:role="line"
+         id="tspan4600"
+         style="font-size:4.33494px;stroke-width:0.79375;stroke-miterlimit:4;stroke-dasharray:none"
+         x="25.357714"
+         y="9.2441912">b1 2-star</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:4.33494px;line-height:1.25;font-family:'Latin Modern Sans';-inkscape-font-specification:'Latin Modern Sans';stroke-width:0.79375;stroke-miterlimit:4;stroke-dasharray:none"
+       x="27.385225"
+       y="110.47893"
+       id="text7432"><tspan
+         sodipodi:role="line"
+         id="tspan7430"
+         style="stroke-width:0.79375;stroke-miterlimit:4;stroke-dasharray:none"
+         x="27.385225"
+         y="110.47893">b2 2-star</tspan></text>
+    <g
+       id="g2769-8"
+       transform="matrix(0.512,0,0,0.512,140.22508,4.1492042)"
+       style="fill:#b2b2b2;fill-opacity:1;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       inkscape:export-filename="/home/george/Documents/research/epicenter/fig/term-actor-twostar-mix.png"
+       inkscape:export-xdpi="170.81"
+       inkscape:export-ydpi="170.81">
+      <rect
+         style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="rect846-8"
+         width="30"
+         height="30"
+         x="26.395472"
+         y="94.978897" />
+      <ellipse
+         style="fill:#008080;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="path950-3"
+         cx="100.23753"
+         cy="80.38063"
+         rx="14.98252"
+         ry="14.982519" />
+      <ellipse
+         style="fill:#008080;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="path950-1-1"
+         cx="100.23753"
+         cy="139.57715"
+         rx="14.98252"
+         ry="14.982519" />
+      <path
+         style="fill:#b2b2b2;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+         d="M 56.395472,102.43372 86.852947,87.113239"
+         id="path1368-8"
+         inkscape:connector-type="polyline"
+         inkscape:connector-curvature="0"
+         inkscape:connection-start="#rect846-8"
+         inkscape:connection-end="#path950-3" />
+      <path
+         style="fill:#b2b2b2;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+         d="m 56.395472,117.52407 30.457474,15.32047"
+         id="path1370-9"
+         inkscape:connector-type="polyline"
+         inkscape:connector-curvature="0"
+         inkscape:connection-start="#rect846-8"
+         inkscape:connection-end="#path950-1-1" />
+    </g>
+    <g
+       id="g2776-6"
+       transform="matrix(-0.512,0,0,0.512,214.40134,58.299574)"
+       style="fill:#b2b2b2;fill-opacity:1;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       inkscape:export-filename="/home/george/Documents/research/epicenter/fig/term-entity-twostar-mix.png"
+       inkscape:export-xdpi="170.81"
+       inkscape:export-ydpi="170.81">
+      <rect
+         style="fill:#008080;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="rect846-8-3-5-4"
+         width="30"
+         height="30"
+         x="-53.873863"
+         y="243.77805"
+         transform="scale(-1,1)" />
+      <ellipse
+         style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="path950-5-8-3"
+         cx="-97.715927"
+         cy="229.17981"
+         rx="14.98252"
+         ry="14.982519"
+         transform="scale(-1,1)" />
+      <rect
+         style="fill:#008080;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="rect846-8-3-3"
+         width="30"
+         height="30"
+         x="-53.873863"
+         y="184.58154"
+         transform="scale(-1,1)" />
+      <path
+         style="fill:#b2b2b2;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+         d="m 53.873863,251.23287 30.45752,-15.32048"
+         id="path2680-3"
+         inkscape:connector-type="polyline"
+         inkscape:connector-curvature="0"
+         inkscape:connection-start="#rect846-8-3-5-4"
+         inkscape:connection-end="#path950-5-8-3" />
+      <path
+         style="fill:#b2b2b2;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+         d="m 53.873863,207.12672 30.457523,15.3205"
+         id="path2682-8"
+         inkscape:connector-type="polyline"
+         inkscape:connector-curvature="0"
+         inkscape:connection-start="#rect846-8-3-3"
+         inkscape:connection-end="#path950-5-8-3" />
+    </g>
+    <g
+       id="g2776-60"
+       transform="matrix(0.512,0,0,0.512,38.126754,184.73542)"
+       style="fill:#b2b2b2;fill-opacity:1;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       inkscape:export-filename="/home/george/Documents/research/epicenter/fig/term-actor-one-edgewise-shared-partner.png"
+       inkscape:export-xdpi="170.81"
+       inkscape:export-ydpi="170.81">
+      <rect
+         style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="rect846-8-3-5-48"
+         width="30"
+         height="30"
+         x="-53.873863"
+         y="243.77805"
+         transform="scale(-1,1)" />
+      <ellipse
+         style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="path950-5-8-8"
+         cx="-97.715927"
+         cy="229.17981"
+         rx="14.98252"
+         ry="14.982519"
+         transform="scale(-1,1)" />
+      <rect
+         style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="rect846-8-3-8"
+         width="30"
+         height="30"
+         x="-53.873863"
+         y="184.58154"
+         transform="scale(-1,1)" />
+      <path
+         style="fill:#b2b2b2;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+         d="m 53.873863,251.23287 30.45752,-15.32048"
+         id="path2680-9"
+         inkscape:connector-type="polyline"
+         inkscape:connector-curvature="0"
+         inkscape:connection-start="#rect846-8-3-5-48"
+         inkscape:connection-end="#path950-5-8-8" />
+      <path
+         style="fill:#b2b2b2;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:1.55029;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+         d="m 53.873863,207.12672 30.457523,15.3205"
+         id="path2682-7"
+         inkscape:connector-type="polyline"
+         inkscape:connector-curvature="0"
+         inkscape:connection-start="#rect846-8-3-8"
+         inkscape:connection-end="#path950-5-8-8" />
+    </g>
+    <g
+       id="g25543"
+       inkscape:export-filename="/home/george/Documents/research/epicenter/fig/term-actor-two-edgewise-shared-partner.png"
+       inkscape:export-xdpi="170.81"
+       inkscape:export-ydpi="170.81">
+      <rect
+         style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:0.79375;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="rect846-8-3-5-48-6"
+         width="15.360001"
+         height="15.360001"
+         x="-122.26603"
+         y="309.54977"
+         transform="scale(-1,1)" />
+      <circle
+         style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:0.79375;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="path950-5-8-8-4"
+         cx="-131.62384"
+         cy="302.07547"
+         transform="scale(-1,1)"
+         r="4.909472" />
+      <rect
+         style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:0.79375;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="rect846-8-3-8-3"
+         width="15.360001"
+         height="15.360001"
+         x="-122.26603"
+         y="279.24118"
+         transform="scale(-1,1)" />
+      <path
+         style="fill:#b2b2b2;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:0.79375;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+         d="m 122.26603,310.39879 5.68963,-5.06065"
+         id="path2680-9-0"
+         inkscape:connector-type="polyline"
+         inkscape:connector-curvature="0"
+         inkscape:connection-start="#rect846-8-3-5-48-6"
+         inkscape:connection-end="#path950-5-8-8-4" />
+      <path
+         style="fill:#b2b2b2;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:0.79375;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+         d="m 122.26603,293.75216 5.68963,5.06065"
+         id="path2682-7-3"
+         inkscape:connector-type="polyline"
+         inkscape:connector-curvature="0"
+         inkscape:connection-start="#rect846-8-3-8-3"
+         inkscape:connection-end="#path950-5-8-8-4" />
+      <circle
+         style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:0.79375;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+         id="path950-5-8-8-4-0"
+         cx="-149.51622"
+         cy="302.07547"
+         transform="scale(-1,1)"
+         r="4.909472" />
+      <path
+         style="fill:none;fill-rule:evenodd;stroke:#000000;stroke-width:0.79375;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+         d="m 122.26603,290.25311 22.74664,9.86852"
+         id="path24324"
+         inkscape:connector-type="polyline"
+         inkscape:connector-curvature="0"
+         inkscape:connection-start="#rect846-8-3-8-3"
+         inkscape:connection-end="#path950-5-8-8-4-0" />
+      <path
+         style="fill:none;fill-rule:evenodd;stroke:#000000;stroke-width:0.79375;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+         d="m 122.26603,313.89784 22.74664,-9.86852"
+         id="path24326"
+         inkscape:connector-type="polyline"
+         inkscape:connector-curvature="0"
+         inkscape:connection-start="#rect846-8-3-5-48-6"
+         inkscape:connection-end="#path950-5-8-8-4-0" />
+    </g>
+    <rect
+       style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:0.793748;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+       id="rect846-9"
+       width="15.36"
+       height="15.36"
+       x="83.224861"
+       y="109.28922"
+       inkscape:export-filename="/home/george/Documents/research/epicenter/fig/term-edgecount.png"
+       inkscape:export-xdpi="170.81"
+       inkscape:export-ydpi="170.81" />
+    <ellipse
+       style="fill:#e1e1e1;fill-opacity:1;fill-rule:evenodd;stroke:#2f2a25;stroke-width:0.793748;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+       id="path950-1-2"
+       cx="121.032"
+       cy="116.96922"
+       rx="7.6710501"
+       ry="7.6710496"
+       inkscape:export-filename="/home/george/Documents/research/epicenter/fig/term-edgecount.png"
+       inkscape:export-xdpi="170.81"
+       inkscape:export-ydpi="170.81" />
+    <path
+       style="fill:none;fill-rule:evenodd;stroke:#000000;stroke-width:0.79375;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       d="M 98.584861,116.96922 H 113.36095"
+       id="path25214"
+       inkscape:connector-type="polyline"
+       inkscape:connector-curvature="0"
+       inkscape:connection-start="#rect846-9"
+       inkscape:connection-end="#path950-1-2"
+       inkscape:export-filename="/home/george/Documents/research/epicenter/fig/term-edgecount.png"
+       inkscape:export-xdpi="170.81"
+       inkscape:export-ydpi="170.81" />
+  </g>
+</svg>
