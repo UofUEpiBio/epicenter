@@ -1,5 +1,5 @@
 ---
-title: "Untitled"
+title: "Bipartite networks of health care workers and residents in long-term care facilities"
 output:
   pdf_document:
     extra_dependencies:
@@ -11,11 +11,29 @@ output:
 editor_options: 
   markdown: 
     wrap: 72
+author: George G. Vega Yon
+date: May 3, 2022
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
 ```
+
+# Data Preparation
+
+For this analysis we will use the following R packages:
+
+- network: For manipulation of network data.
+
+- data.table: For data cleaning and processing.
+
+- ergm: For estimation and simulation of Exponential Random Graph Models.
+
+- netplot: For visualization of networks.
+
+- ggplot2: For general visualization.
+
+- gridExtra: Utilities for grid graphics (base of ggplot2 and netplot.)
 
 ```{r packages, message=FALSE, warning=FALSE}
 library(network)
@@ -23,20 +41,18 @@ library(data.table)
 library(ergm)
 library(netplot)
 library(ggplot2)
+library(gridExtra)
 ```
 
-# Data Preparation
+We start with reading the data.
 
 ```{r read-clean}
 # Reading the data in
 dat <- fread("data/Matched Interaction and Resident.csv")
-
-# HCW data
-cnames <- colnames(dat)
-cnames[grepl("hcw", cnames, ignore.case = TRUE)]
 ```
 
-Creating a few covariates to be used in the ERGM
+Creating a few covariates to be used in the ERGM. We also need to deal with yes/no
+variables to make sure these are represented as 0/1 integers in the data.
 
 ```{r}
 dat[, white := fifelse(!is.na(race), as.integer(race == "White"), NA_integer_)]
@@ -57,7 +73,8 @@ dat[, mdro := fifelse(!is.na(mdro), as.integer(mdro == "Yes"), NA_integer_)]
 ```
 
 The following function will be used to create unique identifiers for
-each network.
+each network. The function replaces non-alphanumeric characters from the data
+with underscore and combines multiple columns into a single string.
 
 ```{r}
 # Function to collapse multiple fields into a single string
@@ -73,20 +90,15 @@ namemilize <- function(...) {
   
 }
 
-# Getting nodes
-dat[, loc_id := namemilize(state, date, Fac_Name, Fac_Unit)]
+# Generating the network ID
+dat[, net_id := namemilize(state, date, Fac_Name, Fac_Unit)]
 ```
 
 We noticed that for some records (7) the resident ID coincides with the
-room id:
+room id. For now, we will remove those records:
 
 ```{r}
 dat[room_num == res_id, .(room_num, res_id)]
-```
-
-For now, we will remove those records
-
-```{r}
 dat <- dat[room_num != res_id]
 ```
 
@@ -123,13 +135,13 @@ creating the network data:
 
 ```{r}
 # Edgelist
-edges <- unique(dat[, .(loc_id, hcw_id, res_id)])
+edges <- unique(dat[, .(net_id, hcw_id, res_id)])
 
 # Nodes dataset
 nodes <- rbind(
   dat[, .(
     id = hcw_id,
-    loc_id, state, Fac_Name, Fac_Unit,
+    net_id, state, Fac_Name, Fac_Unit,
     white = 0L,
     race = "", res_age = 0,
     type = hcw_type, group = "hcw",
@@ -137,7 +149,7 @@ nodes <- rbind(
     wound_care = 0L, diabetes = 0L, dialysis = 0L, wheelchair = 0L, bedridden = 0L, ventilator = 0L, mdro = 0L)],
   dat[, .(
     id = res_id,
-    loc_id, state, Fac_Name, Fac_Unit,
+    net_id, state, Fac_Name, Fac_Unit,
     white,
     race, res_age,
     type = "resident", group = "residents",
@@ -146,11 +158,14 @@ nodes <- rbind(
 ) |> unique()
 ```
 
+The next steps will be to check for duplicates in the data, in particular, at the
+node level.
+
 ## Duplicated records (hcw)
 
 ```{r check-dpls}
-setorder(nodes, loc_id, id)
-nodes[, n := .N, by = .(loc_id, id)][n > 1 & group == "hcw", .(id, type)]
+setorder(nodes, net_id, id)
+nodes[, n := .N, by = .(net_id, id)][n > 1 & group == "hcw", .(id, type)]
 ```
 
 We can see in the data that the duplicated records here (currently 12)
@@ -161,14 +176,14 @@ assistant.) We will replace those with "Nurse."
 nodes[
   n > 1 & group == "hcw" & any(type %in% c("Nurse", "CNA")),
   type := "Nurse",
-  by = .(loc_id, id)
+  by = .(net_id, id)
   ]
 ```
 
 ## Duplicated records (residents)
 
 ```{r check-dpls-residents}
-nodes[n > 1 & group == "residents"][1:10 ,.(id, race, res_age)]
+nodes[n > 1 & group == "residents"][1:10 ,.(id, res_age)]
 ```
 
 Most of the duplicates are in age. For now we will take the mean and use
@@ -180,7 +195,7 @@ are some cases with large age gaps, e.g., 20 years.
 nodes[
   n > 1 & group == "residents",
   res_age := floor(mean(res_age, na.rm = TRUE)),
-  by = .(loc_id, id)
+  by = .(net_id, id)
   ]
 ```
 
@@ -191,19 +206,19 @@ now gone
 
 ```{r}
 nodes <- unique(nodes)
-nodes[, n := .N, by = .(loc_id, id)]
+nodes[, n := .N, by = .(net_id, id)]
 table(nodes[, n])
 ```
 
 Still many observations that are duplicated twice each:
 
 ```{r}
-nodes[n > 1, .(id, race, n, loc_id)]
+nodes[n > 1, .(id, race, n)]
 ```
 
 In this case, the observations have differences in race, e.g., the first
 of them registers both "White" and "Black or African American." Since we
-cannot corretly identify which is the correct, we will set them as "NK -
+cannot correctly identify which is the correct, we will set them as "NK -
 Not Known."
 
 ```{r}
@@ -212,7 +227,7 @@ nodes <- unique(nodes)
 nodes[, n := NULL]
 ```
 
-Observations with missing race or age will be droped.
+Observations with missing race or age will be dropped.
 
 ```{r}
 nodes <- nodes[!is.na(race) & !is.na(res_age)]
@@ -222,15 +237,15 @@ Finally, we need to make sure that edges match the nodes
 
 ```{r}
 edges <- merge(
-  edges, nodes[, .(id, loc_id, here_hcw = TRUE)],
-  by.x = c("hcw_id", "loc_id"), 
-  by.y = c("id", "loc_id"), all.x = TRUE, all.y = FALSE
+  edges, nodes[, .(id, net_id, here_hcw = TRUE)],
+  by.x = c("hcw_id", "net_id"), 
+  by.y = c("id", "net_id"), all.x = TRUE, all.y = FALSE
 )
 
 edges <- merge(
-  edges, nodes[, .(id, loc_id, here_res = TRUE)],
-  by.x = c("res_id", "loc_id"), 
-  by.y = c("id", "loc_id"), all.x = TRUE, all.y = FALSE
+  edges, nodes[, .(id, net_id, here_res = TRUE)],
+  by.x = c("res_id", "net_id"), 
+  by.y = c("id", "net_id"), all.x = TRUE, all.y = FALSE
 )
 
 edges[, here_hcw := fcoalesce(here_hcw, FALSE)]
@@ -241,7 +256,8 @@ edges[, c("here_hcw", "here_res") := c(NULL, NULL)]
 edges <- unique(edges)
 ```
 
-A couple of extra variables
+A couple of extra variables, for now, the square-root of age, which we will use
+in the ERMG model.
 
 ```{r}
 nodes[, sqrt_age := sqrt(res_age)]
@@ -249,20 +265,24 @@ nodes[, sqrt_age := sqrt(res_age)]
 
 # Building the networks
 
+The following code of block will iterate through all network ids and create one
+network per case. Right now we are counting 100 networks:
+
 ```{r build-nets}
 # Making room to store the networks, we will keep two types of
 # networks: HCW - Patient
-networks <- vector("list", length(unique(nodes$loc_id)))
-names(networks) <- unique(nodes$loc_id)
+networks <- vector("list", length(unique(nodes$net_id)))
+names(networks) <- unique(nodes$net_id)
 networks_proj <- networks
 
 nerrors <- 0L
 for (n in names(networks)) {
   
-  edges_n <- edges[loc_id == n, .(hcw_id, res_id)]
+  # Selecting the edges and nodes relevant for the network
+  edges_n <- edges[net_id == n, .(hcw_id, res_id)]
   
-  nodes_hcw_n <- nodes[loc_id == n & group == "hcw"]
-  nodes_res_n <- nodes[loc_id == n & group == "residents"]
+  nodes_hcw_n <- nodes[net_id == n & group == "hcw"]
+  nodes_res_n <- nodes[net_id == n & group == "residents"]
   
   # Trying to read the data
   networks[[n]] <- tryCatch({
@@ -284,85 +304,37 @@ for (n in names(networks)) {
 
 }
 
+# Reporting how many went OK
 message("Done! ", nerrors, "/", length(networks), " failed.")
 ```
+
+Here are four networks:
 
 ```{r viz}
 # Example of a graph
 set.seed(1231)
-nplot(
-  networks[[2L]],
-  edge.curvature=0,
-  vertex.color = c(
-    hcw = "blue", residents = "green"
-    )[networks[[1L]] %v% "group"]
-  )
+
+net_figs <- vector("list", 4L)
+for (i in 1:4)
+  net_figs[[i]] <- nplot(
+    networks[[i]],
+    edge.curvature=0,
+    vertex.color = c(
+      hcw = "blue", residents = "green"
+      )[networks[[i]] %v% "group"]
+    )
+
+# Putting them together using the gridExtra package
+gridExtra::grid.arrange(grobs=net_figs, nrow = 2, ncol = 2) 
 ```
 
-<!-- # Exploratory analysis -->
-
-<!-- ```{r hcw-per-patient} -->
-
-<!-- stats_hcw_patient <- lapply(networks, \(n) { -->
-
-<!--   nactors <- sum(n %v% "is_actor") -->
-
-<!--   if (nactors == 1L) -->
-
-<!--     data.table( -->
-
-<!--       Age = (n %v% "res_age")[!(n %v% "is_actor")], -->
-
-<!--       `N HCW` = as.matrix(n) -->
-
-<!--     ) -->
-
-<!--   else -->
-
-<!--     data.table( -->
-
-<!--       Age = (n %v% "res_age")[!(n %v% "is_actor")], -->
-
-<!--       `N HCW` = colSums(as.matrix(n)) -->
-
-<!--     ) -->
-
-<!-- }) |> rbindlist(fill = FALSE) -->
-
-<!-- stats_hcw_patient[, weights := as.double(.N)][ -->
-
-<!--   , weights := as.numeric(.N/(weights)), by = .(Age)] -->
-
-<!-- ggplot(stats_hcw_patient, aes(x = Age, y = `N HCW`)) + -->
-
-<!--   geom_jitter() +  -->
-
-<!--   geom_smooth(aes(weight = weights)) -->
-
-<!-- lm(`N HCW` ~ Age + I(Age^2), data = stats_hcw_patient) |> summary() -->
-
-<!-- stats_hcw_aggr <- stats_hcw_patient[, .( -->
-
-<!--   `N HCW` = quantile(`N HCW`, probs = c(.025, .5, .975)), -->
-
-<!--   prob    = c(.025, .5, .975) -->
-
-<!--   ), -->
-
-<!--   by = .(Age) -->
-
-<!--   ] -->
-
-<!-- ggplot(stats_hcw_aggr, aes(x = Age, y = `N HCW`)) + -->
-
-<!--   geom_line(aes(group = `prob`)) -->
-
-<!-- ``` -->
 
 # Fitting ERGMs
 
+For the baseline models, we will be using the terms included in table 1. Before we continue, we will now concatenate all networks into a single large graph to be used in with the ERGM package. Although what we want is to fit a pooled-bipartite ERGM, as of today the `ergm` package has no way of dealing with multiple networks. Nonetheless, mathematically, block-diagonal ERGMs--in which ties are only permitted within groups--are equivalent to pooled ERGMs.
+
 \def\tmpfigwidth{\includegraphics[width=.5\linewidth]}
-\begin{table}
+\begin{table}[h]
 	\begin{tabular}{m{.4\linewidth}m{.2\linewidth}m{.3\linewidth}<\centering}
 		\toprule
 		Name & Representation & Form \\ \midrule
@@ -375,6 +347,8 @@ nplot(
 		Dyad-wise two shared residents & \tmpfigwidth{fig/term-actor-two-edgewise-shared-partner.png} & $\sum_{\{i<j\}\in H, \{k<h\}\in R}y_{ik}y_{jk}y_{ih}y_{jh}$ \\ 
 		\bottomrule
 	\end{tabular}
+	\label{tab:terms}
+	\caption{Terms used in the bipartite ERGM models}
 \end{table}
 \def\tmpfigwidth{}
 
@@ -414,11 +388,11 @@ bignet_mat <- as.network(
 )
 
 # Comparing we are getting the same thing
-get.inducedSubgraph(bignet_mat, which((bignet_mat %v% "loc_id") == names(networks)[1]))
+get.inducedSubgraph(bignet_mat, which((bignet_mat %v% "net_id") == names(networks)[1]))
 networks[[1]]
 ```
 
-Common controls for all models
+Common controls for all models:
 
 ```{r}
 default_control <- list(
@@ -447,13 +421,13 @@ this:
 
 ```{r}
 # log(n) part of the term.
-log_n <- log(summary(bignet_mat ~ degrange(0, by = "loc_id")))
+log_n <- log(summary(bignet_mat ~ degrange(0, by = "net_id")))
 
 # Let's see how it looks
 summary(
   bignet_mat ~
     edges +
-    Sum("sum" ~ Sum(log_n ~ b1factor("loc_id", levels=TRUE), "a"), "log_n" )
+    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "log_n" )
 )
 ```
 
@@ -463,9 +437,9 @@ the term as an offset:
 ```{r model0, cache = TRUE, message=FALSE, warning=FALSE}
 res_big_ergm0 <- ergm(
   bignet_mat ~ edges +
-    Sum("sum" ~ Sum(log_n ~ b1factor("loc_id", levels=TRUE), "a"), "edgesxlog_n"),
+    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "edgesxlog_n"),
   control = do.call("control.ergm", c(default_control)),
-  constraints = ~ blockdiag("loc_id")
+  constraints = ~ blockdiag("net_id")
   )
 ```
 
@@ -483,14 +457,14 @@ As in Krivitsky et al. (2022), we can scale terms across the model in
 such a fashion. Let's repeat the exercise with the b2 2-star (second
 level 2-stars) term:
 
-```{r model1, cache = TRUE, eval = TRUE, warning=FALSE, message=FALSE}
+```{r model1, cache = TRUE, eval = TRUE, warning=FALSE, message=FALSE, results='hide'}
 res_big_ergm1 <- ergm(
   bignet_mat ~ edges +
-    Sum("sum" ~ Sum(log_n ~ b1factor("loc_id", levels=TRUE), "a"), "edgesxlog_n") +
+    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "edgesxlog_n") +
     b2star(2) + 
-    Sum("sum"~Sum(log_n ~ b2starmix(2, attr = "loc_id", diff = FALSE), "a"), "b2star x log_n"),
+    Sum("sum"~Sum(log_n ~ b2starmix(2, attr = "net_id", diff = FALSE), "a"), "b2star x log_n"),
   control = do.call("control.ergm", c(default_control)),
-  constraints = ~ blockdiag("loc_id")
+  constraints = ~ blockdiag("net_id")
   )
 ```
 
@@ -647,47 +621,47 @@ texreg::knitreg(
 
 Second model, Using homophily in race:
 
-```{r model2, cache = TRUE, message=FALSE, warning=FALSE, eval = TRUE}
+```{r model2, cache = TRUE, message=FALSE, warning=FALSE, eval = TRUE, results='hide'}
 res_big_ergm2 <- ergm(
   bignet_mat ~ edges + 
-    Sum("sum" ~ Sum(log_n ~ b1factor("loc_id", levels=TRUE), "a"), "edgesxlog_n") +
+    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "edgesxlog_n") +
     b2star(2) + 
     b1starmix(2, "white", diff = FALSE),
   control = do.call("control.ergm", default_control),
-  constraints = ~ blockdiag("loc_id")
+  constraints = ~ blockdiag("net_id")
   )
 ```
 
-```{r model3, cache = TRUE, message=FALSE, warning=FALSE, eval = TRUE}
+```{r model3, cache = TRUE, message=FALSE, warning=FALSE, eval = TRUE, results='hide'}
 res_big_ergm3 <- ergm(
   bignet_mat ~ edges + 
-    Sum("sum" ~ Sum(log_n ~ b1factor("loc_id", levels=TRUE), "a"), "edgesxlog_n") +
+    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "edgesxlog_n") +
     b2star(2) + 
     b1starmix(2, "white", diff = FALSE) +
     b2starmix(2, "type"),
   control = do.call("control.ergm", default_control),
-  constraints = ~ blockdiag("loc_id")
+  constraints = ~ blockdiag("net_id")
   )
 ```
 
-```{r model4, cache = TRUE, message=FALSE, warning=FALSE, eval = TRUE}
+```{r model4, cache = TRUE, message=FALSE, warning=FALSE, eval = TRUE, results='hide'}
 res_big_ergm4 <- ergm(
   bignet_mat ~ edges + 
-    Sum("sum" ~ Sum(log_n ~ b1factor("loc_id", levels=TRUE), "a"), "edgesxlog_n") +
+    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "edgesxlog_n") +
     b2star(2) + 
     b1starmix(2, "white", diff = FALSE) +
     b2starmix(2, "type") + 
     b1dsp(1:2) +
     b2cov("sqrt_age"),
   control = do.call("control.ergm", default_control),
-  constraints = ~ blockdiag("loc_id")
+  constraints = ~ blockdiag("net_id")
   )
 ```
 
-```{r model5, cache = TRUE, message=FALSE, warning=FALSE, eval = TRUE}
+```{r model5, cache = TRUE, message=FALSE, warning=FALSE, eval = TRUE, results='hide'}
 res_big_ergm5 <- ergm(
   bignet_mat ~ edges + 
-    Sum("sum" ~ Sum(log_n ~ b1factor("loc_id", levels=TRUE), "a"), "edgesxlog_n") +
+    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "edgesxlog_n") +
     b2star(2) + 
     b1starmix(2, "white", diff = FALSE) +
     b2starmix(2, "type") + 
@@ -701,7 +675,7 @@ res_big_ergm5 <- ergm(
     b1starmix(2, "ventilator", diff = FALSE) +
     b1starmix(2, "mdro", diff = FALSE),  # 5 missing
   control = do.call("control.ergm", default_control),
-  constraints = ~ blockdiag("loc_id")
+  constraints = ~ blockdiag("net_id")
   )
 ```
 
@@ -723,6 +697,57 @@ cat("\\end{landscape}\n\n")
 texreg::knitreg(list("Model 5" = res_big_ergm5))
 ```
 
+Finally, before proceeding to the goodness-of-fit, we will store the estimates 
+of all models fitted here for post analysis:
+
+```{r storing-models}
+# Model fits
+saveRDS(
+  object = setNames(list(
+    res_big_ergm0,
+    res_big_ergm1,
+    res_big_ergm2,
+    res_big_ergm3,
+    res_big_ergm4,
+    res_big_ergm5,
+    names(networks)
+    ), c(paste("Model", 0:5), "netnames")),
+  file = "2022-04-25-bipartite-ergms.rds"
+)
+
+# Functions
+saveRDS(
+  object = list(
+    namemilize = namemilize,
+    calc_ergm_pearson = calc_ergm_pearson
+  ),
+  file = "2022-04-25-bipartite-ergm-functions.rds"
+)
+```
+
+# Next steps (instructions)
+
+The following hypotheses have not been tested yet:
+
+- Varying density per state (fixed-effects.) This could be done using the term: `b1factor("state", level = NULL)`.
+
+- Two and three-star mixing effect on "short_stay."
+
+- Higher-order dyadwise-shared-partners (b1dsp and b2dsp.)
+
+- Geometrically-weighted dyadwise-shared-partners. This can be done with the
+terms `gwb1dsp()` and `gwb2dsp()`. This is a more stable term than `b1dsp`.
+
+- Geometrically-weighted degree distribution for the second mode. This can be
+done using the `gwb1degree` term. In particular, we are interested on including
+this term by state, i.e., `gwb1degree(decay, attr="state", fixed=TRUE)`, with
+the following values for decay: $\{0.1, 0.2, .5\}$. This effect will be similar
+to density per state. If it doesn't work with density per state, exclude density
+per state when using this effect.
+
+The idea is to include those terms in models 3 and 5, while at the same time
+excluding b1dsp1 and b1dsp2 from model 5. Add one term at a time and save the results
+as I did with the previous models in an RDS file for posterior analysis.
 
 
 # Goodness of fit
