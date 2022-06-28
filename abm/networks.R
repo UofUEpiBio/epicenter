@@ -9,7 +9,7 @@ log_n <- log(summary(nets$network ~ degrange(0, by = "net_id")))
 X <- as.data.frame(nets$network, unit = "vertices") |>
   as.data.table()
 
-X[, .(as.integer(is_actor), as.integer(res_age <= 65), ventilator)] |>
+X[, .(as.integer(is_actor), res_age, ventilator)] |>
   unlist() |> unname() |> cat(file = "abm/actor_attributes.txt", sep = "\n")
 
 
