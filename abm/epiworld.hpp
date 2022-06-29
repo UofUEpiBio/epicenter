@@ -11,6 +11,7 @@
 #include <climits>
 #include <cstdint>
 #include <algorithm>
+#include <regex>
 
 #ifndef EPIWORLD_HPP
 #define EPIWORLD_HPP
@@ -4894,14 +4895,30 @@ public:
      * 
      * The `par()` function members are aliases for `get_param()`.
      * 
+     * In the case of the function `read_params`, users can pass a file
+     * listing parameters to be included in the model. Each line in the
+     * file should have the following structure:
+     * 
+     * ```
+     * [name of parameter 1]: [value in double]
+     * [name of parameter 2]: [value in double]
+     * ...
+     * ```
+     * 
+     * The only condition for parameter names is that these do not include
+     * a colon.
+     * 
+     * 
      * @param initial_val 
      * @param pname Name of the parameter to add or to fetch
+     * @param fn Path to the file containing parameters
      * @return The current value of the parameter
      * in the model.
      * 
      */
     ///@{
     epiworld_double add_param(epiworld_double initial_val, std::string pname);
+    void read_params(std::string fn);
     epiworld_double get_param(unsigned int k);
     epiworld_double get_param(std::string pname);
     epiworld_double par(unsigned int k);
@@ -6892,6 +6909,55 @@ inline epiworld_double Model<TSeq>::add_param(
     CASES_PAR(npar_used++)
     
     return initial_value;
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::read_params(std::string fn)
+{
+
+    std::ifstream paramsfile(fn);
+
+    if (!paramsfile)
+        throw std::logic_error("The file " + fn + " was not found.");
+
+    std::regex pattern("^([^:]+)\\s*[:]\\s*([0-9]+)(\\.[0-9]+)?\\s*$");
+
+    std::string line;
+    std::smatch match;
+    auto empty = std::sregex_iterator();
+
+    while (std::getline(paramsfile, line))
+    {
+
+        // Is it a comment or an empty line?
+        if (std::regex_match(line, std::regex("^([*].+|//.+|#.+|\\s*)$")))
+            continue;
+
+        // Finding the patter, if it doesn't match, then error
+        std::regex_match(line, match, pattern);
+
+        if (match.empty())
+            throw std::logic_error("The line does not match parameters:\n" + line);
+
+        // Capturing the number
+        std::string anumber = match[2u].str() + match[3u].str();
+        epiworld_double tmp_num = static_cast<epiworld_double>(
+            std::strtod(anumber.c_str(), nullptr)
+            );
+
+        // Trimming text
+        
+
+        add_param(
+            tmp_num,
+            std::regex_replace(
+                match[1u].str(),
+                std::regex("^\\s+|\\s+$"),
+                "")
+        );
+
+    }
 
 }
 

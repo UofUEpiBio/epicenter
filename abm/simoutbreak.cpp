@@ -97,6 +97,11 @@ VirusToAgentFun<int> dist_virus_fun = [](Virus<int> & v, Model<int> * m) -> void
     for (Agent<int> & a : (*m->get_agents()))
     {
 
+        // We will only add it to individuals who are not
+        // under ventilator condition.
+        if (a(CNAMES::ventilator) > .5)
+            continue;
+
         size_t id = static_cast<size_t>(a(CNAMES::net_id));
         if (group_composition.size() < (id + 1))
             group_composition.resize(id + 1);
@@ -120,18 +125,21 @@ int main(int argc, char* argv[])
 
     std::string ntype;
     size_t nnets;
+    size_t netsize;
     if (argc == 1)
     {
 
         ntype = "ergm";
         nnets = 1000;
+        netsize = 981;
 
-    } else if (argc != 3)
+    } else if (argc != 4)
         throw std::logic_error("You have to pass the number of networks to read in.");
     else {
 
-        ntype = argv[2];
-        nnets = std::strtoul(argv[1], nullptr, 0);
+        ntype = argv[1];
+        nnets = std::strtoul(argv[2], nullptr, 0);
+        netsize = std::strtoul(argv[3], nullptr, 0);
 
     }
 
@@ -200,22 +208,8 @@ int main(int argc, char* argv[])
         model.add_status("Deseased");
         model.add_status("Recovered");
 
-        // Prob of death
-        model.add_param(0.01, "death rate hcw");
-        model.add_param(0.20, "death rate (vent x <=65)");
-        model.add_param(0.40, "death rate (vent x >65)");
-        model.add_param(0.02, "death rate (no vent x <=65)");
-        model.add_param(0.10, "death rate (no vent x >65)");
-
-        // Prob of recovery
-        model.add_param(1.0/3.0, "rec rate hcw");
-        model.add_param(1.0/7.0, "rec rate (vent x <=65)");
-        model.add_param(1.0/14.0, "rec rate (vent x >65)");
-        model.add_param(1.0/3.5, "rec rate (no vent x <=65)");
-        model.add_param(1.0/7.0, "rec rate (no vent x >65)");
-
-        model.add_param(.3, "prob infect");
-        model.add_param(5, "incubation");
+        // Reading the model parameters
+        model.read_params("simoutbreak-params.txt");
 
         // Processing the network
         char buff[100];
@@ -226,7 +220,7 @@ int main(int argc, char* argv[])
             snprintf(buff, sizeof(buff), "networks/degseq-%04lu.txt", i);
         
         std::string fn = buff;
-        model.agents_from_adjlist(fn, 4191);
+        model.agents_from_adjlist(fn, netsize);
 
         Virus<> disease("A virus");
         disease.set_status(States::Exposed, States::Recovered, States::Deseased);
@@ -250,8 +244,6 @@ int main(int argc, char* argv[])
             model.print();
 
     }
-
-    
 
     return 0;
 

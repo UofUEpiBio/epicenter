@@ -8,8 +8,10 @@ update:
 	rsync -avz ../../world-epi/epiworld.hpp .
 
 sims:
-	./simoutbreak.o 1000 ergm && \
-		./simoutbreak.o 1000 degseq
+	./simoutbreak.o ergm 1000 981 && \
+		./simoutbreak.o degseq 1000 981 && \
+		Rscript --vanilla -e 'rmarkdown::render("abm.Rmd")' && \
+		evince abm.pdf &
 
 
 .PHONY: networks update sims

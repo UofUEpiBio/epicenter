@@ -1,0 +1,16 @@
+* Prob of death
+death rate hcw              : 0.001
+death rate (vent x <=65)    : 0.20
+death rate (vent x >65)     : 0.40
+death rate (no vent x <=65) : 0.01
+death rate (no vent x >65)  : 0.05
+
+* Prob of recovery
+rec rate hcw              : 0.5
+rec rate (vent x <=65)    : 0.14
+rec rate (vent x >65)     : 0.07
+rec rate (no vent x <=65) : 0.14
+rec rate (no vent x >65)  : 0.14
+
+prob infect : 0.9
+incubation  : 5
