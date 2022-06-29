@@ -9,10 +9,14 @@ log_n <- log(summary(nets$network ~ degrange(0, by = "net_id")))
 X <- as.data.frame(nets$network, unit = "vertices") |>
   as.data.table()
 
-X[, .(as.integer(is_actor), res_age, ventilator)] |>
+# Networks of individuals who are in ventilators
+X[, net_has_vent := sum(ventilator) > 0, by = "net_id"]
+
+# Only those who have ventilators
+X <- X[net_has_vent == TRUE]
+
+X[, .(as.integer(is_actor), res_age, ventilator, as.integer(as.factor(net_id)) - 1)] |>
   unlist() |> unname() |> cat(file = "actor_attributes.txt", sep = "\n")
-
-
 
 # Simulating ERGM networks
 set.seed(123)
@@ -30,6 +34,12 @@ for (i in 1:1000) {
     next
 
   n <- simulate(nets, 1)
+
+  # Subsetting networks with ventilator
+  n <- get.inducedSubgraph(
+    n,
+    which((n %v% "vertex.names") %in% X$vertex.names)
+    )
 
   fwrite(
     as.edgelist(n) - 1,
@@ -116,6 +126,11 @@ for (i in 1:1000) {
 
   # Must have the same sequence
   all(degree(empty) == degree(nets$network))
+
+  empty <- get.inducedSubgraph(
+    empty,
+    which((empty %v% "vertex.names") %in% X$vertex.names)
+    )
 
   fwrite(
     as.edgelist(empty) - 1,

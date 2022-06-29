@@ -14,7 +14,8 @@ enum States {
 enum CNAMES {
     is_hcw,
     age,
-    ventilator
+    ventilator,
+    net_id
 };
 
 // Incubation time
@@ -85,14 +86,54 @@ EPI_NEW_VIRUSFUN(prob_rec, int)
 
 }
 
+// Function to distribute the virus
+std::vector<std::vector< Agent<int>* >> group_composition;
+
+VirusToAgentFun<int> dist_virus_fun = [](Virus<int> & v, Model<int> * m) -> void {
+
+
+    // First time it runs, we need to build the groups
+    group_composition.clear();
+    for (Agent<int> & a : (*m->get_agents()))
+    {
+
+        size_t id = static_cast<size_t>(a(CNAMES::net_id));
+        if (group_composition.size() < (id + 1))
+            group_composition.resize(id + 1);
+
+        group_composition[id].push_back(&a);
+
+    }
+    
+    /// Adding the virus, one per group
+    for (auto & g : group_composition)
+    {
+        size_t id = static_cast<size_t>(std::floor(m->runif() * g.size()));
+        g[id]->add_virus(v);
+    }
+
+};
+
+
 int main(int argc, char* argv[]) 
 {
 
-    if (argc != 3)
-        throw std::logic_error("You have to pass the number of networks to read in.");
+    std::string ntype;
+    size_t nnets;
+    if (argc == 1)
+    {
 
-    std::string ntype = argv[2];
-    size_t      nnets = std::strtoul(argv[1], nullptr, 0);
+        ntype = "ergm";
+        nnets = 1000;
+
+    } else if (argc != 3)
+        throw std::logic_error("You have to pass the number of networks to read in.");
+    else {
+
+        ntype = argv[2];
+        nnets = std::strtoul(argv[1], nullptr, 0);
+
+    }
 
     std::cout << "Simulation for " << ntype << ". Netcount: " << nnets << std::endl;
 
@@ -126,17 +167,31 @@ int main(int argc, char* argv[])
         data.push_back(x);
     }
 
+
+    // Making sure they run with different seeding
+    std::vector< size_t > seeds(nnets, 0);
+
     for (size_t i = 1u; i <= nnets; ++i)
     {
         
         // Bones of the model
         Model<> model;
 
+        if (i == 1)
+        {
+            model.seed(0);
+            for (size_t j = 0; j < nnets; ++j)
+                seeds[j] = static_cast<size_t>(
+                    std::floor(
+                        model.runif() * std::numeric_limits<size_t>::max()
+                    ));
+        }
+
         // Suppressing output
         model.verbose_off();
 
         // Setting the data
-        model.set_agents_data(&data[0u], 3u);
+        model.set_agents_data(&data[0u], 4u);
 
         // Model states(statuses)
         model.add_status("Susceptible", sampler::make_update_susceptible<>({States::Exposed}));
@@ -153,14 +208,14 @@ int main(int argc, char* argv[])
         model.add_param(0.10, "death rate (no vent x >65)");
 
         // Prob of recovery
-        model.add_param(1.0/7.0, "rec rate hcw");
-        model.add_param(1.0/14.0, "rec rate (vent x <=65)");
-        model.add_param(1.0/21.0, "rec rate (vent x >65)");
-        model.add_param(1.0/7.0, "rec rate (no vent x <=65)");
-        model.add_param(1.0/14.0, "rec rate (no vent x >65)");
+        model.add_param(1.0/3.0, "rec rate hcw");
+        model.add_param(1.0/7.0, "rec rate (vent x <=65)");
+        model.add_param(1.0/14.0, "rec rate (vent x >65)");
+        model.add_param(1.0/3.5, "rec rate (no vent x <=65)");
+        model.add_param(1.0/7.0, "rec rate (no vent x >65)");
 
         model.add_param(.3, "prob infect");
-        model.add_param(7, "incubation");
+        model.add_param(5, "incubation");
 
         // Processing the network
         char buff[100];
@@ -181,9 +236,10 @@ int main(int argc, char* argv[])
         disease.set_prob_recovery_fun(prob_rec);
         disease.set_prob_infecting(&model("prob infect"));
 
-        model.add_virus_n(disease, 10);
+        model.add_virus_fun(disease, dist_virus_fun);
 
-        model.init(100, 221);
+        // seeds are presetted during the first iteration
+        model.init(100, seeds[i - 1]);
 
         model.run();
 
