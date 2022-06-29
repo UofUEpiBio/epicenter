@@ -4456,7 +4456,7 @@ inline epiworld_double death_reduction_mixer_default(
     );
 
 template<typename TSeq = int>
-inline std::function<void(size_t,Model<TSeq>*)> save_run(
+inline std::function<void(size_t,Model<TSeq>*)> make_save_run(
     std::string fmt = "%03lu-episimulation.csv",
     bool total_hist = true,
     bool variant_info = false,
@@ -4762,7 +4762,7 @@ public:
     void run(); ///< Runs the simulation (after initialization)
     void run_multiple( ///< Multiple runs of the simulation
         unsigned int nexperiments,
-        std::function<void(size_t,Model<TSeq>*)> fun = save_run<TSeq>(),
+        std::function<void(size_t,Model<TSeq>*)> fun = make_save_run<TSeq>(),
         bool reset = true,
         bool verbose = true
         );
@@ -5040,7 +5040,7 @@ public:
  * @return std::function<void(size_t,Model<TSeq>*)> 
  */
 template<typename TSeq>
-inline std::function<void(size_t,Model<TSeq>*)> save_run(
+inline std::function<void(size_t,Model<TSeq>*)> make_save_run(
     std::string fmt,
     bool total_hist,
     bool variant_info,

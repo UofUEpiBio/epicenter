@@ -1,4 +1,5 @@
 #include "epiworld.hpp"
+#include <iostream>
 
 using namespace epiworld;
 
@@ -84,8 +85,31 @@ EPI_NEW_VIRUSFUN(prob_rec, int)
 
 }
 
-int main() 
+int main(int argc, char* argv[]) 
 {
+
+    if (argc != 3)
+        throw std::logic_error("You have to pass the number of networks to read in.");
+
+    std::string ntype = argv[2];
+    size_t      nnets = std::strtoul(argv[1], nullptr, 0);
+
+    std::cout << "Simulation for " << ntype << ". Netcount: " << nnets << std::endl;
+
+    // Function to save the run
+    std::function<void(size_t,Model<>*)> saver = nullptr;
+    if (ntype == "ergm")
+        saver = make_save_run<>(
+            "simoutbreak-data/%03lu-ergm-sim.csv",
+            true, false, false, false, false, false, true, true
+            );
+    else if (ntype == "degseq")
+        saver = make_save_run<>(
+            "simoutbreak-data/%03lu-degseq-sim.csv",
+            true, false, false, false, false, false, true, true
+            );
+    else
+        throw std::logic_error("The requested type is not available.");
 
     // Individuals' covariates
     std::vector< double > data;
@@ -102,11 +126,16 @@ int main()
         data.push_back(x);
     }
 
-    // Bones of the model
-    for (size_t i = 1u; i <= 10; ++i)
+    for (size_t i = 1u; i <= nnets; ++i)
     {
+        
+        // Bones of the model
         Model<> model;
 
+        // Suppressing output
+        model.verbose_off();
+
+        // Setting the data
         model.set_agents_data(&data[0u], 3u);
 
         // Model states(statuses)
@@ -135,7 +164,12 @@ int main()
 
         // Processing the network
         char buff[100];
-        snprintf(buff, sizeof(buff), "networks/ergm-%04lu.txt", i);
+
+        if (ntype == "ergm")
+            snprintf(buff, sizeof(buff), "networks/ergm-%04lu.txt", i);
+        else
+            snprintf(buff, sizeof(buff), "networks/degseq-%04lu.txt", i);
+        
         std::string fn = buff;
         model.agents_from_adjlist(fn, 4191);
 
@@ -153,13 +187,7 @@ int main()
 
         model.run();
 
-        model.write_data(
-            "", "", "", "",
-            "simoutbreak-data/total_hist.txt" + std::to_string(i),
-            "",
-            "simoutbreak-data/transition.txt"+ std::to_string(i),
-            "simoutbreak-data/rep-number.txt"+ std::to_string(i)
-            );
+        saver(i, &model);
 
         // Only print the final one
         if (i == 10u)
