@@ -6,11 +6,11 @@ death rate (no vent x <=65) : 0.01
 death rate (no vent x >65)  : 0.05
 
 * Prob of recovery
-rec rate hcw              : 0.5
+rec rate hcw              : 0.14
 rec rate (vent x <=65)    : 0.14
 rec rate (vent x >65)     : 0.07
-rec rate (no vent x <=65) : 0.14
+rec rate (no vent x <=65) : 0.28
 rec rate (no vent x >65)  : 0.14
 
-prob infect : 0.9
+prob infect : 0.1
 incubation  : 5

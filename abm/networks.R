@@ -10,10 +10,13 @@ X <- as.data.frame(nets$network, unit = "vertices") |>
   as.data.table()
 
 # Networks of individuals who are in ventilators
-X[, net_has_vent := sum(ventilator) > 0, by = "net_id"]
+X[, net_has_vent := sum(ventilator), by = "net_id"]
+X[, net_nothas_vent := .N - net_has_vent, by = "net_id"]
+
+X[net_has_vent >= 4 & net_nothas_vent >= 4, unique(net_id)]
 
 # Only those who have ventilators
-X <- X[net_has_vent == TRUE]
+X <- X[net_has_vent >= 4 & net_nothas_vent >= 4]
 
 X[, .(as.integer(is_actor), res_age, ventilator, as.integer(as.factor(net_id)) - 1)] |>
   unlist() |> unname() |> cat(file = "actor_attributes.txt", sep = "\n")
@@ -21,18 +24,9 @@ X[, .(as.integer(is_actor), res_age, ventilator, as.integer(as.factor(net_id)) -
 # Simulating ERGM networks
 set.seed(123)
 
-fnames <- list.files(
-  "networks",
-  pattern = "ergm-[0-9]+\\.txt",
-  full.names = TRUE
-  )
-
 for (i in 1:1000) {
 
   fname <- sprintf("networks/ergm-%04i.txt", i)
-  if (fname %in% fnames)
-    next
-
   n <- simulate(nets, 1)
 
   # Subsetting networks with ventilator
@@ -81,8 +75,6 @@ fnames <- list.files(
 for (i in 1:1000) {
 
   fname <- sprintf("networks/degseq-%04i.txt", i)
-  if (fname %in% fnames)
-    next
 
   # Empty network
   empty <- nets$network
@@ -143,5 +135,3 @@ for (i in 1:1000) {
     message("Network ", sprintf("% 5i", i), " done...")
 
 }
-
-?rewire_graph

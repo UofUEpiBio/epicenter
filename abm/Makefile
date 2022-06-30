@@ -8,8 +8,8 @@ update:
 	rsync -avz ../../world-epi/epiworld.hpp .
 
 sims:
-	./simoutbreak.o ergm 1000 981 && \
-		./simoutbreak.o degseq 1000 981 && \
+	./simoutbreak.o ergm 1000 507 && \
+		./simoutbreak.o degseq 1000 507 && \
 		Rscript --vanilla -e 'rmarkdown::render("abm.Rmd")' && \
 		evince abm.pdf &
 
