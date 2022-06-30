@@ -1,0 +1,93 @@
+---
+output: pdf_document
+---
+
+```{r ergm-data, echo = FALSE}
+library(data.table)
+ergm_data <- list.files(
+    "simoutbreak-data",
+    pattern = "ergm-sim.+total_hist",
+    full.names = TRUE
+    )
+
+ergm_data <- lapply(ergm_data, fread)
+ergm_data <- rbindlist(ergm_data)
+
+ergm_deseased <- ergm_data[status == "Deseased"]
+
+ergm_data <- ergm_data[, .(
+    `2.5%` = quantile(counts, probs = .025),
+    `Mean` = mean(counts),
+    `97.5%` = quantile(counts, probs = .975)
+), by = .(date, status)]
+```
+
+```{r degseq-data, echo = FALSE}
+degseq_data <- list.files(
+    "simoutbreak-data",
+    pattern = "degseq-sim.+total_hist",
+    full.names = TRUE
+    )
+
+degseq_data <- lapply(degseq_data, fread)
+degseq_data <- rbindlist(degseq_data)
+
+degseq_deseased <- degseq_data[status == "Deseased"]
+
+degseq_data <- degseq_data[, .(
+    `2.5%` = quantile(counts, probs = .025),
+    `Mean` = mean(counts),
+    `97.5%` = quantile(counts, probs = .975)
+), by = .(date, status)]
+```
+
+```{r, fig.height=5, fig.width=6, dev="pdf", out.width="1\\linewidth"}
+library(ggplot2)
+
+all_data <- rbind(
+    cbind(ergm_data, model = "ERGM"),
+    cbind(degseq_data, model = "Degree sequence")
+)
+
+ggplot(all_data[status == "Deseased"], aes(x = date)) +
+  geom_line(aes(y = Mean, colour = model, lty = model), lwd = 1.5) +
+  labs(
+    colour  = "Graph Generating Process",
+    x       = "Days since first infection",
+    caption = "Based on 1,000 replicates.",
+    y       = "Number of Deaths"
+    ) +
+  guides(lty = "none") + 
+  theme(
+    legend.position = c(.2, .85),
+    legend.background = element_blank()
+    ) 
+
+ggplot(all_data[status == "Deseased"], aes(x = date)) +
+    geom_ribbon(aes(ymin = `2.5%`, ymax = `97.5%`, fill = model), alpha = .5) +
+    geom_line(aes(y = Mean, colour = model))
+```
+
+Testing significance
+
+```{r}
+t.test(all_data[status == "Deseased"])
+
+values <- list()
+for (i in 1:100) {
+    values[[i]] <- t.test(
+        degseq_deseased[date == i, counts],
+        ergm_deseased[date == i, counts], 
+        alternative = "two.sided",
+        paired = FALSE
+    )
+}
+
+pvals <- data.table(
+    Date = 1:100,
+    `P-value` = sapply(values, "[[", "p.value")
+)[-c(1,2)]
+
+ggplot(pvals, aes(x = Date, y = `P-value`)) +
+    geom_point() + scale_y_log10(limits = c(min(pvals$`P-value`), NA))
+```
