@@ -2,6 +2,8 @@ library(ergm)
 library(sna)
 library(data.table)
 
+models <- "permute" # c("degseq", "permute", "ergm")
+
 nets <- readRDS("../models/2022-04-25-bipartite-ergms.rds")[["Model 5"]]
 log_n <- log(summary(nets$network ~ degrange(0, by = "net_id")))
 
@@ -21,34 +23,127 @@ X <- X[net_has_vent >= 4 & net_nothas_vent >= 4]
 X[, .(as.integer(is_actor), res_age, ventilator, as.integer(as.factor(net_id)) - 1)] |>
   unlist() |> unname() |> cat(file = "actor_attributes.txt", sep = "\n")
 
-# Simulating ERGM networks
+# We will use netdiffuseR's rewiring algorithm which is
+# fast
+library(netdiffuseR)
+
+# ------------------------------------------------------------------------------
+# Original network
+# ------------------------------------------------------------------------------
+empty <- get.inducedSubgraph(
+  nets$network,
+  which((nets$network %v% "vertex.names") %in% X$vertex.names)
+  )
+
+fwrite(
+  as.edgelist(empty) - 1,
+  "networks/original.txt",
+  sep = " ",
+  col.names = FALSE
+  )
+
+# ------------------------------------------------------------------------------
+# Simulating ERGM networks 
+# ------------------------------------------------------------------------------
 set.seed(123)
 
-for (i in 1:1000) {
+if ("ergm" %in% models) {
 
-  fname <- sprintf("networks/ergm-%04i.txt", i)
-  n <- simulate(nets, 1)
+  for (i in 1:1000) {
 
-  # Subsetting networks with ventilator
-  n <- get.inducedSubgraph(
-    n,
-    which((n %v% "vertex.names") %in% X$vertex.names)
-    )
+    fname <- sprintf("networks/ergm-%04i.txt", i)
+    n <- simulate(nets, 1)
 
-  fwrite(
-    as.edgelist(n) - 1,
-    fname,
-    sep = " ",
-    col.names = FALSE
-    )
+    # Subsetting networks with ventilator
+    n <- get.inducedSubgraph(
+      n,
+      which((n %v% "vertex.names") %in% X$vertex.names)
+      )
 
-  if (!i %% 50)
-    message("Network ", sprintf("% 5i", i), " done...")
+    fwrite(
+      as.edgelist(n) - 1,
+      fname,
+      sep = " ",
+      col.names = FALSE
+      )
+
+    
+    # Splitting the networks
+    nets_individual <- n
+    vnames          <- nets_individual %v% "vertex.names"
+    nets_names      <- unique(nets_individual %v% "net_id")
+
+    nets_individual <- parallel::mclapply(nets_names, \(id) {
+      get.inducedSubgraph(
+        nets_individual,
+        which(nets_individual %v% "net_id" == id)
+        )
+    }, mc.cores = 4L)
+    
+    # Generating rewired version -------------------------------------------------
+    fname <- sprintf("networks/ergm+degseq-%04i.txt", i)
+
+    # Empty network
+    empty    <- n
+    empty[,] <- 0L
+
+    # Getting the new ties
+    for (n_i in nets_individual) {
+
+      # Retrieving the edgelist
+      el_tmp <- as.edgelist(n_i)
+      n_sparse <- matrix(0L, nrow = network.size(n_i), ncol = network.size(n_i))
+
+      dimnames(n_sparse) <- list(
+        attr(el_tmp, "vnames"),
+        attr(el_tmp, "vnames")
+      )
+
+      n_sparse[el_tmp] <- 1L
+
+      # Rewiring with degree-sequence
+      n_sparse <- rewire_graph(
+        n_sparse,
+        p = network.edgecount(n_i) * 15,
+        algorithm = "swap"
+        ) |> as.matrix()
+
+      ids <- match(n_i %v% "vertex.names", vnames)
+
+      e  <- which(n_sparse != 0, arr.ind = TRUE)
+      e[] <- ids[as.vector(e)]
+
+      add.edges(empty, e[, 1], e[, 2])
+
+    }
+
+    # Must have the same sequence
+    stopifnot(all(degree(empty) == degree(n)))
+
+    empty <- get.inducedSubgraph(
+      empty,
+      which((empty %v% "vertex.names") %in% X$vertex.names)
+      )
+
+    fwrite(
+      as.edgelist(empty) - 1,
+      fname,
+      sep = " ",
+      col.names = FALSE
+      )
+
+
+    if (!i %% 50)
+      message("Network ", sprintf("% 5i", i), " done...")
+
+  }
 
 }
 
-# Simulating random from the baseline preserving degree
+# ------------------------------------------------------------------------------
+# Simulating random from the baseline preserving degree 
 # sequence
+# ------------------------------------------------------------------------------
 
 # Splitting the networks
 nets_individual <- nets$network
@@ -62,76 +157,135 @@ nets_individual <- parallel::mclapply(nets_names, \(id) {
     )
 }, mc.cores = 4L)
 
-# We will use netdiffuseR's rewiring algorithm which is
-# fast
-library(netdiffuseR)
+if ("degseq" %in% models) {
 
-fnames <- list.files(
-  "networks",
-  pattern = "degseq-[0-9]+\\.txt",
-  full.names = TRUE
-  )
+  for (i in 1:1000) {
 
-for (i in 1:1000) {
+    fname <- sprintf("networks/degseq-%04i.txt", i)
 
-  fname <- sprintf("networks/degseq-%04i.txt", i)
+    # Empty network
+    empty <- nets$network
+    empty[,] <- 0L
 
-  # Empty network
-  empty <- nets$network
-  empty[,] <- 0L
+    # Getting the new ties
+    for (n in nets_individual) {
 
-  # Getting the new ties
-  count <- 1L
-  for (n in nets_individual) {
+      # Skipping this network
+      if (!all((n %v% "vertex.names") %in% X$vertex.names))
+        next
 
-    # Retrieving the edgelist
-    el_tmp <- as.edgelist(n)
-    n_sparse <- matrix(0L, nrow = network.size(n), ncol = network.size(n))
+      # Retrieving the edgelist
+      el_tmp <- as.edgelist(n)
+      n_sparse <- matrix(0L, nrow = network.size(n), ncol = network.size(n))
 
-    dimnames(n_sparse) <- list(
-      attr(el_tmp, "vnames"),
-      attr(el_tmp, "vnames")
-    )
+      dimnames(n_sparse) <- list(
+        attr(el_tmp, "vnames"),
+        attr(el_tmp, "vnames")
+      )
 
-    n_sparse[el_tmp] <- 1L
+      n_sparse[el_tmp] <- 1L
 
-    # Rewiring with degree-sequence
-    n_sparse <- rewire_graph(
-      n_sparse,
-      p = network.edgecount(n) * 15,
-      algorithm = "swap"
-      ) |> as.matrix()
+      # Rewiring with degree-sequence
+      n_sparse <- rewire_graph(
+        n_sparse,
+        p = network.edgecount(n) * 15,
+        algorithm = "swap"
+        ) |> as.matrix()
 
-    ids <- match(n %v% "vertex.names", vnames)
+      ids <- match(n %v% "vertex.names", vnames)
 
-    e  <- which(n_sparse != 0, arr.ind = TRUE)
-    e[] <- ids[as.vector(e)]
+      e  <- which(n_sparse != 0, arr.ind = TRUE)
+      e[] <- ids[as.vector(e)]
 
-    add.edges(empty, e[, 1], e[, 2])
+      add.edges(empty, e[, 1], e[, 2])
 
-    # if (!count %% 10)
-    #   message("Network ", count, " in ", i, " done.")
+    }
 
-    count <- count + 1
+    # Must have the same sequence
+    stopifnot(all(degree(empty) == degree(nets$network)))
+
+    empty <- get.inducedSubgraph(
+      empty,
+      which((empty %v% "vertex.names") %in% X$vertex.names)
+      )
+
+    fwrite(
+      as.edgelist(empty) - 1,
+      fname,
+      sep = " ",
+      col.names = FALSE
+      )
+
+    if (!i %% 50)
+      message("Network ", sprintf("% 5i", i), " done...")
 
   }
 
-  # Must have the same sequence
-  all(degree(empty) == degree(nets$network))
+}
 
-  empty <- get.inducedSubgraph(
-    empty,
-    which((empty %v% "vertex.names") %in% X$vertex.names)
-    )
+# ------------------------------------------------------------------------------
+# Simulating permute
+# ------------------------------------------------------------------------------
+net_induced <- get.inducedSubgraph(
+  nets$network, 
+  which((nets$network %v% "vertex.names") %in% X$vertex.names)
+  )
 
-  fwrite(
-    as.edgelist(empty) - 1,
-    fname,
-    sep = " ",
-    col.names = FALSE
-    )
+net_degrees <- degree(net_induced)
 
-  if (!i %% 50)
-    message("Network ", sprintf("% 5i", i), " done...")
+set.seed(881)
+if ("permute" %in% models) {
+
+  for (i in 1:1000) {
+
+    fname <- sprintf("networks/permute-%04i.txt", i)
+
+    # Empty network
+    empty <- network.copy(nets$network)
+    empty[,] <- 0L
+
+    # Getting the new ties
+    for (n in nets_individual) {
+
+      # Skipping this network
+      if (!all((n %v% "vertex.names") %in% X$vertex.names))
+        next
+
+      nn <- as.edgelist(n)
+
+      # Permuting residents and hcw
+      nactors <- sum(n %v% "is_actor")
+      p <- c(
+        sample(1:nactors),
+        sample((nactors + 1):network.size(n))
+        )
+      
+      nn[] <- p[as.vector(nn)]
+
+      ids <- match((n %v% "vertex.names"), vnames)
+
+      nn[] <- ids[as.vector(nn)]
+
+      add.edges(empty, nn[, 1], nn[, 2])
+
+    }
+
+    # Not shared degree sequence
+    empty <- get.inducedSubgraph(
+      empty,
+      which((empty %v% "vertex.names") %in% X$vertex.names)
+      )
+
+    fwrite(
+      as.edgelist(empty) - 1,
+      fname,
+      sep = " ",
+      col.names = FALSE
+      )
+
+    if (!i %% 50)
+      message("Network ", sprintf("% 5i", i), " done...")
+
+  }
 
 }

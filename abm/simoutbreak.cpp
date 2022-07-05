@@ -61,28 +61,25 @@ EPI_NEW_VIRUSFUN(prob_rec, int)
 
     // Extracting variables
     if (p->operator()(CNAMES::is_hcw) > .5)
-        return m->par("rec rate hcw");
+        return 1.0/m->par("rec rate hcw");
 
     // Ventilator is either 0 or 1, so .5 makes it good enough
-    double prec;
     if (p->operator()(CNAMES::ventilator) > .5)
     {
 
         if (p->operator()(CNAMES::age) <= 65) 
-            prec = m->par("rec rate (vent x <=65)");
+            return 1.0/m->par("rec rate (vent x <=65)");
         else 
-            prec = m->par("rec rate (vent x >65)");
+            return 1.0/m->par("rec rate (vent x >65)");
 
     } else {
 
         if (p->operator()(CNAMES::age) <= 65) 
-            prec = m->par("rec rate (no vent x <=65)");
+            return 1.0/m->par("rec rate (no vent x <=65)");
         else 
-            prec = m->par("rec rate (no vent x >65)");
+            return 1.0/m->par("rec rate (no vent x >65)");
         
     }
-
-    return prec;
 
 }
 
@@ -131,7 +128,7 @@ int main(int argc, char* argv[])
 
         ntype = "ergm";
         nnets = 1000;
-        netsize = 981;
+        netsize = 507;
 
     } else if (argc != 4)
         throw std::logic_error("You have to pass the number of networks to read in.");
@@ -157,8 +154,23 @@ int main(int argc, char* argv[])
             "simoutbreak-data/%03lu-degseq-sim.csv",
             true, false, false, false, false, false, true, true
             );
+    else if (ntype == "ergm+degseq")
+        saver = make_save_run<>(
+            "simoutbreak-data/%03lu-ergm+degseq-sim.csv",
+            true, false, false, false, false, false, true, true
+            );
+    else if (ntype == "original")
+        saver = make_save_run<>(
+            "simoutbreak-data/%03lu-original-sim.csv",
+            true, false, false, false, false, false, true, true
+            );
+    else if (ntype == "permute")
+        saver = make_save_run<>(
+            "simoutbreak-data/%03lu-permute-sim.csv",
+            true, false, false, false, false, false, true, true
+            );
     else
-        throw std::logic_error("The requested type is not available.");
+        throw std::logic_error("The requested type of network is not available for this experiment.");
 
     // Individuals' covariates
     std::vector< double > data;
@@ -214,13 +226,20 @@ int main(int argc, char* argv[])
         // Processing the network
         char buff[100];
 
-        if (ntype == "ergm")
-            snprintf(buff, sizeof(buff), "networks/ergm-%04lu.txt", i);
-        else
-            snprintf(buff, sizeof(buff), "networks/degseq-%04lu.txt", i);
-        
-        std::string fn = buff;
-        model.agents_from_adjlist(fn, netsize);
+        if (ntype == "original")
+        {
+            model.agents_from_adjlist("networks/original.txt", netsize);
+        } else {
+            snprintf(
+                buff,
+                sizeof(buff),
+                (std::string("networks/") + ntype + std::string("-%04lu.txt")).c_str(),
+                i);
+            
+            std::string fn = buff;
+            model.agents_from_adjlist(fn, netsize);
+        }
+
 
         Virus<> disease("A virus");
         disease.set_status(States::Exposed, States::Recovered, States::Deseased);
@@ -233,15 +252,27 @@ int main(int argc, char* argv[])
         model.add_virus_fun(disease, dist_virus_fun);
 
         // seeds are presetted during the first iteration
-        model.init(100, seeds[i - 1]);
+        model.init(model("total days"), seeds[i - 1]);
 
-        model.run();
+        if (ntype == "original")
+        {
 
-        saver(i, &model);
+            model.run_multiple(nnets, saver);
+            break;
 
-        // Only print the final one
-        if (i == 10u)
-            model.print();
+        } else {
+
+            model.run();
+
+            saver(i, &model);
+
+            // Only print the final one
+            if (i == 10u)
+                model.print();
+
+        }
+
+        
 
     }
 

@@ -2,92 +2,161 @@
 output: pdf_document
 ---
 
-```{r ergm-data, echo = FALSE}
-library(data.table)
-ergm_data <- list.files(
-    "simoutbreak-data",
-    pattern = "ergm-sim.+total_hist",
-    full.names = TRUE
-    )
-
-ergm_data <- lapply(ergm_data, fread)
-ergm_data <- rbindlist(ergm_data)
-
-ergm_deseased <- ergm_data[status == "Deseased"]
-
-ergm_data <- ergm_data[, .(
-    `2.5%` = quantile(counts, probs = .025),
-    `Mean` = mean(counts),
-    `97.5%` = quantile(counts, probs = .975)
-), by = .(date, status)]
-```
-
-```{r degseq-data, echo = FALSE}
-degseq_data <- list.files(
-    "simoutbreak-data",
-    pattern = "degseq-sim.+total_hist",
-    full.names = TRUE
-    )
-
-degseq_data <- lapply(degseq_data, fread)
-degseq_data <- rbindlist(degseq_data)
-
-degseq_deseased <- degseq_data[status == "Deseased"]
-
-degseq_data <- degseq_data[, .(
-    `2.5%` = quantile(counts, probs = .025),
-    `Mean` = mean(counts),
-    `97.5%` = quantile(counts, probs = .975)
-), by = .(date, status)]
-```
-
-```{r, fig.height=5, fig.width=6, dev="pdf", out.width="1\\linewidth"}
+```{r setup, echo = FALSE}
 library(ggplot2)
+library(data.table)
+knitr::opts_chunk$set(echo = FALSE)
+```
 
-all_data <- rbind(
-    cbind(ergm_data, model = "ERGM"),
-    cbind(degseq_data, model = "Degree sequence")
-)
+```{r all-data, echo = FALSE}
+# List of sims
+nettypes <- c(
+  "ergm"   = "ERGM",
+  "degseq" = "Degree Sequence",
+  "ergm+degseq" = "ERGM + Degree Sequence",
+  original = "Baseline",
+  permute = "Permutation"
+  )
 
-ggplot(all_data[status == "Deseased"], aes(x = date)) +
-  geom_line(aes(y = Mean, colour = model, lty = model), lwd = 1.5) +
+for (ntype in names(nettypes)) {
+
+  # Retrieving results
+  tmp_data <- list.files(
+    "simoutbreak-data",
+    pattern = sprintf(
+      "%s-sim.+total_hist",
+      gsub("([+.*])", "\\\\\\1", ntype)
+      ),
+    full.names = TRUE
+    )
+
+  # Reading the files
+  tmp_data <- lapply(tmp_data, fread)
+  tmp_data <- rbindlist(tmp_data)
+  tmp_data[, model := nettypes[ntype]]
+
+  tmp_name <- gsub("[^a-zA-Z_]+", "_", ntype)
+
+
+  tmp_deseased <- tmp_data[status == "Deseased"]
+
+  assign(sprintf("%s_deseased", tmp_name), tmp_data[status == "Deseased"])
+
+  # Computing quantiles
+  tmp_data <- tmp_data[, .(
+    `2.5%` = quantile(counts, probs = .025),
+    `Mean` = mean(counts),
+    `97.5%` = quantile(counts, probs = .975)
+  ), by = .(date, status)]
+
+  assign(sprintf("%s_data", tmp_name), tmp_data)
+  
+  rm(tmp_name, tmp_data, tmp_deseased)
+
+}
+
+```
+
+
+
+```{r meandist}
+
+for (d in ls(pattern = "^.+_deseased")) {
+  get(d)[,
+  .(
+    Mean = mean(counts),
+    Var  = sd(counts)/sqrt(.N)
+    ), by = .(date, model)
+  ][,
+    `2.5%`  := qnorm(.025, Mean, sqrt(Var))][,
+    `97.5%` := qnorm(.975, Mean, sqrt(Var))
+    ] |> assign(x = paste0("mean_", d))
+
+}
+
+rbindlist(mget(ls(pattern = "mean_")))[date >= 50] |>
+  ggplot(aes(x = date)) +
+  geom_ribbon(aes(ymin = `2.5%`, ymax = `97.5%`, fill = model), alpha = .7) +
   labs(
-    colour  = "Graph Generating Process",
+    fill    = "Graph Generating Process",
     x       = "Days since first infection",
-    caption = "Based on 1,000 replicates.",
-    y       = "Number of Deaths"
+    caption = "Based on 1,000 replicates. 95% CI of the mean",
+    y       = "Mean Deaths"
     ) +
-  guides(lty = "none") + 
+  guides(colour = "none") +
+  facet_wrap(~ model) +
   theme(
     legend.position = c(.2, .85),
     legend.background = element_blank()
-    ) 
-
-ggplot(all_data[status == "Deseased"], aes(x = date)) +
-    geom_ribbon(aes(ymin = `2.5%`, ymax = `97.5%`, fill = model), alpha = .5) +
-    geom_line(aes(y = Mean, colour = model))
+    )
 ```
 
-Testing significance
 
-```{r}
-t.test(all_data[status == "Deseased"])
+## Investigating networks
 
-values <- list()
-for (i in 1:100) {
-    values[[i]] <- t.test(
-        degseq_deseased[date == i, counts],
-        ergm_deseased[date == i, counts], 
-        alternative = "two.sided",
-        paired = FALSE
+```{r eval = FALSE}
+actors <- data.frame(id = 1:507) 
+
+nets_ergm <- list.files("networks/", pattern = "ergm", full.names = TRUE)
+ergm_degrees <- NULL
+i <- 0L
+for (n in nets_ergm) {
+
+  i <- i + 1
+
+  n_i <- read.table(n, sep = " ")
+
+  n_i <- igraph::graph_from_data_frame(
+    n_i + 1,
+    directed = FALSE,
+    vertices = actors
+    )
+
+  ergm_degrees <- rbind(
+    data.table(
+      net    = i,
+      id     = 1:igraph::vcount(n_i),
+      degree = igraph::degree(n_i)),
+    ergm_degrees
+    )
+
+}
+
+nets_degseq <- list.files("networks/", pattern = "degseq", full.names = TRUE)
+degseq_degrees <- NULL
+i <- 0
+for (n in nets_degseq) {
+
+  i <- i + 1
+
+  n_i <- read.table(n, sep = " ") |> as.matrix()
+
+  n_i <- igraph::graph_from_data_frame(
+    n_i + 1,
+    directed = FALSE,
+    vertices = actors
+    )
+
+  degseq_degrees <- rbind(
+    data.table(
+      net    = i,
+      id     = 1:igraph::vcount(n_i),
+      degree = igraph::degree(n_i)),
+    degseq_degrees
     )
 }
 
-pvals <- data.table(
-    Date = 1:100,
-    `P-value` = sapply(values, "[[", "p.value")
-)[-c(1,2)]
+differences <- data.table(
+  net    = degseq_degrees$net,
+  degseq = degseq_degrees$degree,
+  ergm = ergm_degrees$degree
+  )[, diff := degseq - ergm]
+  
+differences <- differences[, .(totaldiff = sum(abs(diff))), by = "net"]
 
-ggplot(pvals, aes(x = Date, y = `P-value`)) +
-    geom_point() + scale_y_log10(limits = c(min(pvals$`P-value`), NA))
+# ggplot(differences, aes(y = diff)) +
+#   geom_histogram()
+
+# ggplot(differences, aes(y = ergm)) +
+#   geom_histogram()
 ```

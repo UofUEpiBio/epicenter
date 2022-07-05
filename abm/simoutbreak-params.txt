@@ -6,11 +6,14 @@ death rate (no vent x <=65) : 0.01
 death rate (no vent x >65)  : 0.05
 
 * Prob of recovery
-rec rate hcw              : 0.14
-rec rate (vent x <=65)    : 0.14
-rec rate (vent x >65)     : 0.07
-rec rate (no vent x <=65) : 0.28
-rec rate (no vent x >65)  : 0.14
+rec rate hcw              : 7.0
+rec rate (vent x <=65)    : 14.0
+rec rate (vent x >65)     : 28.0
+rec rate (no vent x <=65) : 7.0
+rec rate (no vent x >65)  : 14.0
 
 prob infect : 0.1
 incubation  : 5
+
+* Days (duration)
+total days: 120

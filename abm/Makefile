@@ -1,5 +1,5 @@
 simoutbreak.o: simoutbreak.cpp epiworld.hpp
-	g++ -std=c++17 -O2 -Wall -pedantic simoutbreak.cpp -o simoutbreak.o
+	g++ -std=c++17 -g -O2 -Wall -pedantic simoutbreak.cpp -o simoutbreak.o
 
 networks: networks.R
 	R CMD BATCH --vanilla networks.R networks.Rout &
@@ -7,12 +7,16 @@ networks: networks.R
 update:
 	rsync -avz ../../world-epi/epiworld.hpp .
 
-sims:
+sims: simoutbreak.o
 	./simoutbreak.o ergm 1000 507 && \
 		./simoutbreak.o degseq 1000 507 && \
-		Rscript --vanilla -e 'rmarkdown::render("abm.Rmd")' && \
-		evince abm.pdf &
+		./simoutbreak.o ergm+degseq 1000 507 && \
+		./simoutbreak.o original 1000 507 && \
+		./simoutbreak.o permute 1000 507 && \
+		$(MAKE) -B abm.pdf &
 
+abm.pdf: abm.Rmd simoutbreak-params.txt
+	Rscript --vanilla -e 'rmarkdown::render("abm.Rmd")' && evince abm.pdf &
 
 .PHONY: networks update sims
 
