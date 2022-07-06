@@ -7,12 +7,14 @@ networks: networks.R
 update:
 	rsync -avz ../../world-epi/epiworld.hpp .
 
+Size=1454
+
 sims: simoutbreak.o
-	./simoutbreak.o ergm 1000 507 && \
-		./simoutbreak.o degseq 1000 507 && \
-		./simoutbreak.o ergm+degseq 1000 507 && \
-		./simoutbreak.o original 1000 507 && \
-		./simoutbreak.o permute 1000 507 && \
+	./simoutbreak.o ergm 1000 ${Size} && \
+		./simoutbreak.o degseq 1000 ${Size} && \
+		./simoutbreak.o ergm+degseq 1000 ${Size} && \
+		./simoutbreak.o original 1000 ${Size} && \
+		./simoutbreak.o permute 1000 ${Size} && \
 		$(MAKE) -B abm.pdf &
 
 abm.pdf: abm.Rmd simoutbreak-params.txt

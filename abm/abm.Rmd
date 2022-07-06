@@ -74,7 +74,15 @@ for (d in ls(pattern = "^.+_deseased")) {
 
 }
 
-rbindlist(mget(ls(pattern = "mean_")))[date >= 50] |>
+alldata <- rbindlist(mget(ls(pattern = "mean_")))[date >= 50 & model != "Baseline"]
+
+alldata <- merge(
+  alldata,
+  mean_original_deseased[, .(date, lb = `2.5%`, ub = `97.5%`)],
+  by = "date"
+  )
+
+alldata |>
   ggplot(aes(x = date)) +
   geom_ribbon(aes(ymin = `2.5%`, ymax = `97.5%`, fill = model), alpha = .7) +
   labs(
@@ -85,12 +93,29 @@ rbindlist(mget(ls(pattern = "mean_")))[date >= 50] |>
     ) +
   guides(colour = "none") +
   facet_wrap(~ model) +
+  geom_ribbon(aes(ymin = lb, ymax = ub), fill = "gray", alpha = .7) +
   theme(
-    legend.position = c(.2, .85),
+    # legend.position = c(.2, .85),
     legend.background = element_blank()
     )
 ```
 
+```{r joint}
+alldata |>
+  ggplot(aes(x = date)) +
+  geom_ribbon(aes(ymin = `2.5%`, ymax = `97.5%`, fill = model), alpha = .7) +
+  labs(
+    fill    = "Graph Generating Process",
+    x       = "Days since first infection",
+    caption = "Based on 1,000 replicates. 95% CI of the mean",
+    y       = "Mean Deaths"
+    ) +
+  guides(colour = "none") +
+  theme(
+    # legend.position = c(.2, .85),
+    legend.background = element_blank()
+    )
+```
 
 ## Investigating networks
 

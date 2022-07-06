@@ -725,6 +725,27 @@ saveRDS(
 )
 ```
 
+```{r ventmodel}
+res_big_ergmvent <- ergm(
+  bignet_mat ~ edges + 
+    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "edgesxlog_n") +
+    b2star(2) + 
+    # b1starmix(2, "white", diff = FALSE) +
+    b2starmix(2, "type") + 
+    b1dsp(1:2) +
+    b2cov("sqrt_age") +
+    # b1starmix(2, "wound_care", diff = FALSE) + # 3 missing
+    # b1starmix(2, "diabetes", diff = FALSE) +
+    # b1starmix(2, "dialysis", diff = FALSE) +
+    # b1starmix(2, "wheelchair", diff = FALSE) +
+    b1starmix(2, "bedridden", diff = FALSE) +
+    b1starmix(2, "ventilator", diff = FALSE) +
+    b1starmix(2, "mdro", diff = FALSE),  # 5 missing
+  control = do.call("control.ergm", default_control),
+  constraints = ~ blockdiag("net_id")
+  )
+```
+
 # Next steps (instructions)
 
 The following hypotheses have not been tested yet:
