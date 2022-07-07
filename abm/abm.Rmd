@@ -11,11 +11,12 @@ knitr::opts_chunk$set(echo = FALSE)
 ```{r all-data, echo = FALSE}
 # List of sims
 nettypes <- c(
-  "ergm"   = "ERGM",
-  "degseq" = "Degree Sequence",
+  "ergm"        = "ERGM",
+  # "degseq"      = "Degree Sequence",
   "ergm+degseq" = "ERGM + Degree Sequence",
-  original = "Baseline",
-  permute = "Permutation"
+  original      = "Baseline",
+  "ergm+attrs"  = "ERGM + Permutation"
+  # permute       = "Permutation"
   )
 
 for (ntype in names(nettypes)) {
@@ -24,7 +25,7 @@ for (ntype in names(nettypes)) {
   tmp_data <- list.files(
     "simoutbreak-data",
     pattern = sprintf(
-      "%s-sim.+total_hist",
+      "-%s-sim.+total_hist",
       gsub("([+.*])", "\\\\\\1", ntype)
       ),
     full.names = TRUE
@@ -32,6 +33,7 @@ for (ntype in names(nettypes)) {
 
   # Reading the files
   tmp_data <- lapply(tmp_data, fread)
+  tmp_data <- lapply(seq_along(tmp_data), \(i) cbind(simid = i, tmp_data[[i]]))
   tmp_data <- rbindlist(tmp_data)
   tmp_data[, model := nettypes[ntype]]
 
@@ -82,6 +84,8 @@ alldata <- merge(
   by = "date"
   )
 
+rm(list = ls(pattern = "^mean_"))
+
 alldata |>
   ggplot(aes(x = date)) +
   geom_ribbon(aes(ymin = `2.5%`, ymax = `97.5%`, fill = model), alpha = .7) +
@@ -93,7 +97,7 @@ alldata |>
     ) +
   guides(colour = "none") +
   facet_wrap(~ model) +
-  geom_ribbon(aes(ymin = lb, ymax = ub), fill = "gray", alpha = .7) +
+  # geom_ribbon(aes(ymin = lb, ymax = ub), fill = "gray", alpha = .7) +
   theme(
     # legend.position = c(.2, .85),
     legend.background = element_blank()
@@ -112,76 +116,140 @@ alldata |>
     ) +
   guides(colour = "none") +
   theme(
-    # legend.position = c(.2, .85),
+    legend.position = c(.2, .85),
     legend.background = element_blank()
     )
 ```
 
-## Investigating networks
+## Comparing final values
 
-```{r eval = FALSE}
-actors <- data.frame(id = 1:507) 
+```{r}
+t.test(
+  ergm_deseased[date == 120]$counts,
+  ergm_attrs_deseased[date == 120]$counts
+)
 
-nets_ergm <- list.files("networks/", pattern = "ergm", full.names = TRUE)
-ergm_degrees <- NULL
-i <- 0L
-for (n in nets_ergm) {
-
-  i <- i + 1
-
-  n_i <- read.table(n, sep = " ")
-
-  n_i <- igraph::graph_from_data_frame(
-    n_i + 1,
-    directed = FALSE,
-    vertices = actors
-    )
-
-  ergm_degrees <- rbind(
-    data.table(
-      net    = i,
-      id     = 1:igraph::vcount(n_i),
-      degree = igraph::degree(n_i)),
-    ergm_degrees
-    )
-
-}
-
-nets_degseq <- list.files("networks/", pattern = "degseq", full.names = TRUE)
-degseq_degrees <- NULL
-i <- 0
-for (n in nets_degseq) {
-
-  i <- i + 1
-
-  n_i <- read.table(n, sep = " ") |> as.matrix()
-
-  n_i <- igraph::graph_from_data_frame(
-    n_i + 1,
-    directed = FALSE,
-    vertices = actors
-    )
-
-  degseq_degrees <- rbind(
-    data.table(
-      net    = i,
-      id     = 1:igraph::vcount(n_i),
-      degree = igraph::degree(n_i)),
-    degseq_degrees
-    )
-}
-
-differences <- data.table(
-  net    = degseq_degrees$net,
-  degseq = degseq_degrees$degree,
-  ergm = ergm_degrees$degree
-  )[, diff := degseq - ergm]
-  
-differences <- differences[, .(totaldiff = sum(abs(diff))), by = "net"]
-
-# ggplot(differences, aes(y = diff)) +
-#   geom_histogram()
-
-# ggplot(differences, aes(y = ergm)) +
-#   geom_histogram()
+t.test(
+  ergm_deseased[date == 120]$counts,
+  ergm_degseq_deseased[date == 120]$counts
+)
 ```
+
+## Regression analysis post simulation
+
+```{r network-stats, eval = FALSE, cache=TRUE}
+library(stringr)
+
+# Networks
+netfiles <- list.files("networks/", full.names = TRUE)
+netfiles <- netfiles[!grepl("original", netfiles)]
+
+netfiles <- str_match_all(netfiles, "(?<=//)([a-zA-Z+]+)[-]([0-9]+)") |> 
+  lapply(data.table) |> rbindlist() |> cbind(path = netfiles)
+
+netfiles <- netfiles[, .(model = V2, simid = as.integer(V3), path)]
+
+# Simulation results
+last_obs <- mget(ls(pattern = "^[a-z_]+_deseased$")) |> rbindlist()
+last_obs <- last_obs[date == max(date)]
+
+last_obs_mean_baseline <- last_obs[model == "Baseline", counts]
+last_obs[, counts_centered := (counts - mean(last_obs_mean_baseline))/sd(last_obs_mean_baseline)]
+
+# Vertex data
+vertex_dat <- readLines("actor_attributes.txt") |> as.double() |>
+  matrix(ncol = 4) |> data.table()
+
+vertex_dat <- setNames(vertex_dat, c("is_hcw", "age", "ventilator", "net_id"))
+vertex_dat <- cbind(id = 1:nrow(vertex_dat), vertex_dat)
+vertex_dat[, is_hcw := is_hcw == 1]
+
+library(parallel)
+
+degrees <- mclapply(seq_len(nrow(netfiles)), \(i) {
+
+  n_i <- read.table(netfiles$path[i], sep = " ")
+
+  n_i <- network::as.network(
+    n_i + 1L,
+    directed  = FALSE,
+    vertices  = vertex_dat,
+    bipartite = TRUE,
+    bipartite_col = "is_hcw"
+    )
+
+  tmp <- cbind(vertex_dat, d = sna::degree(n_i))
+
+  tmp[, avg_deg := mean(d), by = .(net_id, is_hcw)]
+  tmp[, avg_deg_vent := mean(d), by = .(net_id, is_hcw, ventilator)]
+
+  a <- tmp[is_hcw == 0 & ventilator == 0, .(net_id, hcw_deg = avg_deg)] |> unique()
+  b <- tmp[is_hcw == 1 & ventilator == 0, .(net_id, res_deg = avg_deg)] |> unique()
+
+  c <- tmp[is_hcw == 0 & ventilator == 0, .(net_id, res_novent_deg = avg_deg_vent)] |> unique()
+  d <- tmp[is_hcw == 0 & ventilator == 1, .(net_id, res_vent_deg = avg_deg_vent)] |> unique()
+
+  res <- cbind(a, b[,-1], c[,-1], d[,-1])
+
+  res <- lapply(res[,-1], mean) |> do.call(what = data.table)
+  res[, simid := netfiles$simid[i]]
+  res[, model := nettypes[netfiles$model[i]]]
+  res[, edges := network::network.edgecount(n_i)]
+
+}, mc.cores = 4L)
+
+degrees <- rbindlist(degrees)
+
+regression_data <- merge(
+  degrees,
+  last_obs, by = c("simid", "model")
+)
+```
+
+
+```{r lrtest, echo=FALSE, results='asis', eval=FALSE}
+
+model1 <- glm(
+  counts_centered ~ factor(model) + hcw_deg + res_deg + res_novent_deg + res_vent_deg,
+  data = regression_data,
+  family = gaussian()
+)
+
+model2 <- glm(
+  counts_centered ~
+    hcw_deg + res_deg + res_novent_deg + res_vent_deg +
+    I(hcw_deg^2) + I(res_deg^2) + I(res_novent_deg^2) + I(res_vent_deg^2),
+  data = regression_data,
+  family = gaussian()
+)
+
+model3 <- glm(
+  counts_centered ~ hcw_deg + res_deg + res_novent_deg + res_vent_deg,
+  data = regression_data,
+  family = gaussian()
+)
+
+model4 <- glm(
+  counts_centered ~ hcw_deg + res_deg + res_vent_deg + res_novent_deg + I(res_novent_deg^2),
+  data = regression_data,
+  family = gaussian()
+)
+
+model5 <- glm(
+  counts_centered ~ res_vent_deg + res_novent_deg + I(res_novent_deg^2),
+  data = regression_data,
+  family = gaussian()
+)
+
+texreg::knitreg(list(model1, model2, model3, model4, model5))
+```
+
+
+
+```{r lr-test, eval=FALSE}
+library(lmtest)
+
+lrtest(model1, model2, model3)
+```
+
+

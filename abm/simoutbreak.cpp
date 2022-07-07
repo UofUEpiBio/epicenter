@@ -126,9 +126,9 @@ int main(int argc, char* argv[])
     if (argc == 1)
     {
 
-        ntype = "ergm";
+        ntype = "ergm+attrs";
         nnets = 1000;
-        netsize = 507;
+        netsize = 1454;
 
     } else if (argc != 4)
         throw std::logic_error("You have to pass the number of networks to read in.");
@@ -169,6 +169,11 @@ int main(int argc, char* argv[])
             "simoutbreak-data/%03lu-permute-sim.csv",
             true, false, false, false, false, false, true, true
             );
+    else if (ntype == "ergm+attrs")
+        saver = make_save_run<>(
+            "simoutbreak-data/%03lu-ergm+attrs-sim.csv",
+            true, false, false, false, false, false, true, true
+            );
     else
         throw std::logic_error("The requested type of network is not available for this experiment.");
 
@@ -193,6 +198,35 @@ int main(int argc, char* argv[])
 
     for (size_t i = 1u; i <= nnets; ++i)
     {
+
+        if (ntype == "ergm+attrs")
+        {
+
+            char actorfiles[100];
+            snprintf(
+                actorfiles,
+                sizeof(actorfiles),
+                (
+                    std::string("actor_attributes/permuted_attributes-%04i.txt")).c_str(),
+                    i
+                );
+
+            // Reading the individual level data
+            std::ifstream file_args(actorfiles);
+
+            if (!file_args)
+                throw std::logic_error("Failed to read actor attributes.");
+
+            int l = 0;
+            while (!file_args.eof())
+            {
+                // Capturing x
+                file_args >> x;
+                
+                // Assigning the value
+                data[l++] = x;
+            }
+        }
         
         // Bones of the model
         Model<> model;
@@ -229,11 +263,20 @@ int main(int argc, char* argv[])
         if (ntype == "original")
         {
             model.agents_from_adjlist("networks/original.txt", netsize);
-        } else {
+        } else if (ntype != "ergm+attrs") {
             snprintf(
                 buff,
                 sizeof(buff),
                 (std::string("networks/") + ntype + std::string("-%04lu.txt")).c_str(),
+                i);
+            
+            std::string fn = buff;
+            model.agents_from_adjlist(fn, netsize);
+        } else {
+            snprintf(
+                buff,
+                sizeof(buff),
+                (std::string("networks/ergm-%04lu.txt")).c_str(),
                 i);
             
             std::string fn = buff;

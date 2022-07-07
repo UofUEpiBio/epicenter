@@ -2,7 +2,7 @@ library(ergm)
 library(sna)
 library(data.table)
 
-models <- c("degseq", "permute", "ergm")
+models <- "ergm" # c("degseq", "permute", "ergm")
 
 nets <- readRDS("../models/2022-04-25-bipartite-ergms.rds")[["Model 5"]]
 log_n <- log(summary(nets$network ~ degrange(0, by = "net_id")))
@@ -12,7 +12,7 @@ X <- as.data.frame(nets$network, unit = "vertices") |>
   as.data.table()
 
 # Networks of individuals who are in ventilators
-X[, net_has_vent := sum(bedridden), by = "net_id"]
+X[, net_has_vent := sum(ventilator), by = "net_id"]
 X[, net_nothas_vent := .N - net_has_vent, by = "net_id"]
 
 X[net_has_vent >= 4 & net_nothas_vent >= 4, unique(net_id)]
@@ -20,8 +20,30 @@ X[net_has_vent >= 4 & net_nothas_vent >= 4, unique(net_id)]
 # Only those who have ventilators
 X <- X[net_has_vent >= 4 & net_nothas_vent >= 4]
 
-X[, .(as.integer(is_actor), res_age, bedridden, as.integer(as.factor(net_id)) - 1)] |>
+X_int <- X[, .(as.integer(is_actor), res_age, ventilator, as.integer(as.factor(net_id)) - 1)]
+
+X_int |>
   unlist() |> unname() |> cat(file = "actor_attributes.txt", sep = "\n")
+
+# Generating permuted version of actors attributes
+set.seed(331)
+for (i in 1:1000) {
+
+  # Generating permutation
+  Z <- X[, .(is_actor, net_id, o = runif(.N))]
+  
+  Z <- cbind(X_int, Z)[, {
+    data.table(V1,res_age, ventilator, V4)[order(o), ]
+  }, by = .(is_actor, net_id)][, -c(1,2)]
+
+  # Saving the data
+  Z |> unlist() |> unname() |> cat(
+    file = sprintf(
+      "actor_attributes/permuted_attributes-%04i.txt",
+      i),
+      sep = "\n"
+      )
+}
 
 # We will use netdiffuseR's rewiring algorithm which is
 # fast
@@ -169,10 +191,6 @@ if ("degseq" %in% models) {
 
     # Getting the new ties
     for (n in nets_individual) {
-
-      # # Skipping this network
-      # if (!all((n %v% "vertex.names") %in% X$vertex.names))
-      #   next
 
       # Retrieving the edgelist
       el_tmp <- as.edgelist(n)
