@@ -15,7 +15,8 @@ nettypes <- c(
   # "degseq"      = "Degree Sequence",
   "ergm+degseq" = "ERGM + Degree Sequence",
   original      = "Baseline",
-  "ergm+attrs"  = "ERGM + Permutation"
+  # "ergm+attrs"  = "ERGM + Permutation",
+  "ergm+bernoulli"  = "ERGM + Bernoulli"
   # permute       = "Permutation"
   )
 
@@ -76,7 +77,7 @@ for (d in ls(pattern = "^.+_deseased")) {
 
 }
 
-alldata <- rbindlist(mget(ls(pattern = "mean_")))[date >= 50 & model != "Baseline"]
+alldata <- rbindlist(mget(ls(pattern = "mean_")))[date >= 25 & model != "Baseline"]
 
 alldata <- merge(
   alldata,
@@ -116,7 +117,7 @@ alldata |>
     ) +
   guides(colour = "none") +
   theme(
-    legend.position = c(.2, .85),
+    legend.position = c(1-.2, 1-.85),
     legend.background = element_blank()
     )
 ```
@@ -124,20 +125,25 @@ alldata |>
 ## Comparing final values
 
 ```{r}
-t.test(
+tryCatch(t.test(
   ergm_deseased[date == 120]$counts,
   ergm_attrs_deseased[date == 120]$counts
-)
+), error = function(e) e)
 
-t.test(
+tryCatch(t.test(
   ergm_deseased[date == 120]$counts,
   ergm_degseq_deseased[date == 120]$counts
-)
+), error = function(e) e)
+
+tryCatch(t.test(
+  ergm_deseased[date == 120]$counts,
+  ergm_bernoulli_deseased[date == 120]$counts
+), error = function(e) e)
 ```
 
 ## Regression analysis post simulation
 
-```{r network-stats, eval = FALSE, cache=TRUE}
+```{r network-stats, eval = TRUE, cache=TRUE}
 library(stringr)
 
 # Networks
@@ -165,6 +171,14 @@ vertex_dat <- cbind(id = 1:nrow(vertex_dat), vertex_dat)
 vertex_dat[, is_hcw := is_hcw == 1]
 
 library(parallel)
+
+# Only whatever types we are analyzing now
+name_pattern <- names(nettypes) |>
+  gsub(pattern = "([+.])", replacement = "\\\\\\1") |>
+  paste(collapse="|") |>
+  sprintf(fmt = "networks//(%s)-")
+
+netfiles <- netfiles[grepl(name_pattern, path)]
 
 degrees <- mclapply(seq_len(nrow(netfiles)), \(i) {
 
@@ -207,7 +221,7 @@ regression_data <- merge(
 ```
 
 
-```{r lrtest, echo=FALSE, results='asis', eval=FALSE}
+```{r lrtest, echo=FALSE, results='asis', eval=TRUE}
 
 model1 <- glm(
   counts_centered ~ factor(model) + hcw_deg + res_deg + res_novent_deg + res_vent_deg,

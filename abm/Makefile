@@ -16,6 +16,7 @@ sims: simoutbreak.o
 		./simoutbreak.o ergm+degseq ${NNets} ${Size} && \
 		./simoutbreak.o ergm+attrs ${NNets} ${Size} && \
 		./simoutbreak.o original ${NNets} ${Size} && \
+		./simoutbreak.o ergm+bernoulli ${NNets} ${Size} && \
 		# ./simoutbreak.o permute ${NNets} ${Size} && \
 		$(MAKE) -B abm.pdf &
 

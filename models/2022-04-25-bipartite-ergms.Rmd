@@ -320,8 +320,10 @@ for (i in 1:4)
     networks[[i]],
     edge.curvature=0,
     vertex.color = c(
-      hcw = "blue", residents = "green"
-      )[networks[[i]] %v% "group"]
+      hcw = "blue", residents = "darkgray"
+      )[networks[[i]] %v% "group"] |> adjustcolor(alpha.f = .5),
+    vertex.nsides = c(hcw = 4, residents = 20)[networks[[i]] %v% "group"],
+    vertex.rot    = 2 * pi / 8, vertex.size.range = c(.025, .05)
     )
 
 # Putting them together using the gridExtra package
@@ -725,7 +727,7 @@ saveRDS(
 )
 ```
 
-```{r ventmodel}
+```{r ventmodel, cache=TRUE}
 res_big_ergmvent <- ergm(
   bignet_mat ~ edges + 
     Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "edgesxlog_n") +
@@ -745,6 +747,13 @@ res_big_ergmvent <- ergm(
   constraints = ~ blockdiag("net_id")
   )
 ```
+
+```{r results='asis'}
+texreg::knitreg(
+  res_big_ergmvent
+)
+```
+
 
 # Next steps (instructions)
 

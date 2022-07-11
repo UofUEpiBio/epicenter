@@ -169,6 +169,11 @@ int main(int argc, char* argv[])
             "simoutbreak-data/%03lu-permute-sim.csv",
             true, false, false, false, false, false, true, true
             );
+    else if (ntype == "ergm+bernoulli")
+        saver = make_save_run<>(
+            "simoutbreak-data/%03lu-ergm+bernoulli-sim.csv",
+            true, false, false, false, false, false, true, true
+            );
     else if (ntype == "ergm+attrs")
         saver = make_save_run<>(
             "simoutbreak-data/%03lu-ergm+attrs-sim.csv",

@@ -154,9 +154,55 @@ if ("ergm" %in% models) {
       col.names = FALSE
       )
 
+    # Generating the fully permuted version ------------------------------------
+    fname <- sprintf("networks/ergm+bernoulli-%04i.txt", i)
+    
+    empty    <- n
+    empty[,] <- 0L
+
+    # Getting the new ties
+    for (n_i in nets_individual) {
+
+      # Actor count
+      nactors <- sum(n_i %v% "is_actor")
+      netsize <- network.size(n_i)
+      indices_n_i <- lapply(1:nactors, \(j) {
+        cbind(j, nactors:netsize)
+      }) |> do.call(what=rbind)
+
+      # Retrieving the edgelist
+      el_tmp <- as.edgelist(n_i)
+      n_sparse <- matrix(0L, nrow = network.size(n_i), ncol = network.size(n_i))
+
+      dimnames(n_sparse) <- list(
+        attr(el_tmp, "vnames"),
+        attr(el_tmp, "vnames")
+      )
+
+      n_sparse[el_tmp] <- 1L
+
+      # Rewiring free
+      n_sparse[indices_n_i] <- sample(n_sparse[indices_n_i])
+
+      ids <- match(n_i %v% "vertex.names", vnames)
+
+      e  <- which(n_sparse != 0, arr.ind = TRUE)
+      e[] <- ids[as.vector(e)]
+
+      add.edges(empty, e[, 1], e[, 2])
+
+    }
 
     if (!i %% 50)
       message("Network ", sprintf("% 5i", i), " done...")
+
+    
+    fwrite(
+      as.edgelist(empty) - 1,
+      fname,
+      sep = " ",
+      col.names = FALSE
+      )
 
   }
 
