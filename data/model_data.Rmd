@@ -1,0 +1,359 @@
+---
+title: "modeldata"
+output: html_document
+date: "2022-08-19"
+---
+
+---
+title: "Bipartite networks of health care workers and residents in long-term care facilities"
+output:
+  pdf_document:
+    extra_dependencies:
+      - pdflscape
+      - tabularx
+      - booktabs
+      - geometry
+      - graphicx
+editor_options: 
+  markdown: 
+    wrap: 72
+author: George G. Vega Yon
+date: May 3, 2022
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
+```
+
+# Data Preparation
+
+For this analysis we will use the following R packages:
+
+- network: For manipulation of network data.
+
+- data.table: For data cleaning and processing.
+
+- ergm: For estimation and simulation of Exponential Random Graph Models.
+
+- netplot: For visualization of networks.
+
+- ggplot2: For general visualization.
+
+- gridExtra: Utilities for grid graphics (base of ggplot2 and netplot.)
+
+```{r packages, message=FALSE, warning=FALSE}
+library(network)
+library(data.table)
+library(ergm)
+library(netplot)
+library(ggplot2)
+library(gridExtra)
+```
+
+We start with reading the data.
+
+```{r read-clean}
+# Reading the data in
+dat <- fread("data/Matched Interaction and Resident.csv")
+```
+
+Creating a few covariates to be used in the ERGM. We also need to deal with yes/no
+variables to make sure these are represented as 0/1 integers in the data.
+
+```{r}
+dat[!is.na(race), white := as.integer(race == "White")]
+# Wound Care
+# Diabetes
+# Dialysis
+# Wheelchair
+# Bedridden
+# Ventilator
+# MDRO
+dat[!is.na(wound_care), wound_care := as.integer(wound_care == "Yes")]
+dat[!is.na(diabetes), diabetes := as.integer(diabetes == "Yes")]
+dat[!is.na(dialysis), dialysis := as.integer(dialysis == "Yes")]
+dat[!is.na(wheelchair), wheelchair := as.integer(wheelchair == "Yes")]
+dat[!is.na(bedridden), bedridden := as.integer(bedridden == "Yes")]
+dat[!is.na(ventilator), ventilator := as.integer(ventilator == "Yes")]
+dat[!is.na(mdro), mdro := as.integer(mdro == "Yes")]
+```
+
+The following function will be used to create unique identifiers for
+each network. The function replaces non-alphanumeric characters from the data
+with underscore and combines multiple columns into a single string.
+
+```{r}
+# Function to collapse multiple fields into a single string
+# keeping only alphanumeric characters.
+namemilize <- function(...) {
+  do.call(
+    paste,
+    c(lapply(list(...), \(x) gsub("[^[:alnum:]]", "_", trimws(x))),
+      list(sep = "-"))
+  ) |>
+    tolower() |>
+    gsub(pattern = "_+", replacement = "_")
+  
+}
+
+# Generating the network ID
+dat[, net_id := namemilize(state, date, Fac_Name, Fac_Unit)]
+```
+
+We noticed that for some records (7) the resident ID coincides with the
+room id. For now, we will remove those records:
+
+```{r}
+dat[room_num == res_id, .(room_num, res_id)]
+dat <- dat[room_num != res_id]
+```
+
+Some of the health variables have missing data or are inconsistent,
+showing 0/1/NA values in the same day. We will take the most frequent
+value, if no NAs are registered.
+
+```{r}
+f <- \(d) {
+  tmp <- table(d, useNA = "no")
+  rep(as.integer(names(tmp[which.max(tmp)])), length(d))
+}
+
+dat[, wound_care := f(wound_care), by = .(state, date, Fac_Name, Fac_Unit, res_id)]
+dat[, diabetes := f(diabetes), by = .(state, date, Fac_Name, Fac_Unit, res_id)]
+dat[, dialysis := f(dialysis), by = .(state, date, Fac_Name, Fac_Unit, res_id)]
+dat[, wheelchair := f(wheelchair), by = .(state, date, Fac_Name, Fac_Unit, res_id)]
+dat[, bedridden := f(bedridden), by = .(state, date, Fac_Name, Fac_Unit, res_id)]
+dat[, ventilator := f(ventilator), by = .(state, date, Fac_Name, Fac_Unit, res_id)]
+dat[, mdro := f(mdro), by = .(state, date, Fac_Name, Fac_Unit, res_id)]
+
+# There are some other missing, so we will replace them by the individual (regardless)
+# of the day
+dat[, wound_care := f(wound_care), by = .(state, Fac_Name, Fac_Unit, res_id)]
+dat[, mdro := f(mdro), by = .(state, Fac_Name, Fac_Unit, res_id)]
+
+# # Still a couple of missings... just 0 for now
+# dat[, wound_care := fcoalesce(wound_care, 0L)]
+# dat[, mdro := fcoalesce(mdro, 0L)]
+```
+
+Now that we have idividual ids for the unit/location, we can start
+creating the network data:
+
+```{r}
+# Edgelist
+edges <- unique(dat[, .(net_id, hcw_id, res_id)])
+
+# Nodes dataset
+nodes <- rbind(
+  dat[, .(
+    id = hcw_id,
+    net_id, state, Fac_Name, Fac_Unit,
+    white = 0L,
+    race = "", res_age = 0,
+    type = hcw_type, group = "hcw",
+    is_actor = TRUE,
+    # These are set to  be zero for the case of hwc
+    wound_care = 0L,
+    diabetes   = 0L,
+    dialysis   = 0L,
+    wheelchair = 0L,
+    bedridden  = 0L,
+    ventilator = 0L,
+    mdro       = 0L)],
+  dat[, .(
+    id = res_id,
+    net_id, state, Fac_Name, Fac_Unit,
+    white,
+    race, res_age,
+    type = "resident", group = "residents",
+    is_actor = FALSE,
+    # But no for the residents
+    wound_care, diabetes, dialysis, wheelchair, bedridden, ventilator, mdro)]
+) |> unique()
+```
+
+The next steps will be to check for duplicates in the data, in particular, at the
+node level.
+
+## Duplicated records (hcw)
+
+```{r check-dpls}
+setorder(nodes, net_id, id)
+nodes[, n := .N, by = .(net_id, id)][n > 1 & group == "hcw", .(id, type)]
+# nodes[, n := .N, by = .(net_id, id)][n > 1 & group == "hcw", ] |> View()
+```
+
+We can see in the data that the duplicated records here (currently 12)
+are in its majority if type "Nurse" or "CNA" (certified nurse
+assistant.) We will replace those with "Nurse." We also see "RT" (respiratory
+therapist) and "other".
+
+```{r check-dpls-replace}
+nodes[
+  n > 1 & group == "hcw" & any(type %in% c("Nurse", "CNA")),
+  type := "Nurse",
+  by = .(net_id, id)
+  ]
+```
+
+## Duplicated records (residents)
+
+```{r check-dpls-residents}
+nodes[n > 1 & group == "residents"][1:10 ,.(id, res_age)]
+```
+
+Most of the duplicates are in age. For now we will take the 50th quantile and use
+that as the observed age. Notice that, while most cases the duplicates
+have ages that show little differences, e.g., one or two years, there
+are some cases with large age gaps, e.g., 20 years.
+
+```{r check-dpls-residents-fix}
+nodes[
+  n > 1 & group == "residents",
+  res_age := floor(quantile(res_age, na.rm = TRUE, probs = .5)),
+  by = .(net_id, id)
+  ]
+```
+
+## Checking no duplicates exists
+
+After the data pre-processing, let's check whether the duplicates are
+now gone
+
+```{r}
+nodes <- unique(nodes) # No change
+nodes[, n := .N, by = .(net_id, id)]
+table(nodes[, n])
+```
+
+Five observations that are duplicated twice each:
+
+```{r}
+nodes[n > 1, .(id, race, n)]
+```
+
+In this case, the observations have differences in race, e.g., the first
+of them registers both "White" and "Black or African American." Since we
+cannot correctly identify which is the correct, we will set them as "NK -
+Not Known."
+
+```{r}
+nodes[n > 1, c("race", "white") := list("NK - Not Known", 2L)]
+
+# Set the NK - Not Known to be zero
+nodes[race == "NK - Not Known", white := NA_integer_]
+nodes <- unique(nodes)
+nodes[, n := NULL]
+
+```
+
+Observations with missing race or age will be dropped.
+
+```{r}
+nodes <- nodes[!is.na(white) & !is.na(res_age)]
+```
+
+Finally, we need to make sure that edges match the nodes
+
+```{r}
+edges <- merge(
+  edges, nodes[, .(id, net_id, here_hcw = TRUE)],
+  by.x = c("hcw_id", "net_id"), 
+  by.y = c("id", "net_id"), all.x = TRUE, all.y = FALSE
+)
+
+edges <- merge(
+  edges, nodes[, .(id, net_id, here_res = TRUE)],
+  by.x = c("res_id", "net_id"), 
+  by.y = c("id", "net_id"), all.x = TRUE, all.y = FALSE
+)
+
+edges[, here_hcw := fcoalesce(here_hcw, FALSE)]
+edges[, here_res := fcoalesce(here_res, FALSE)]
+edges <- edges[here_hcw & here_res]
+
+edges[, c("here_hcw", "here_res") := c(NULL, NULL)]
+edges <- unique(edges)
+```
+
+A couple of extra variables, for now, the square-root of age, which we will use
+in the ERMG model.
+
+```{r}
+nodes[, sqrt_age := sqrt(res_age)]
+```
+
+# Building the networks
+
+The following code of block will iterate through all network ids and create one
+network per case. Right now we are counting 100 networks:
+
+```{r build-nets}
+# Making room to store the networks, we will keep two types of
+# networks: HCW - Patient
+networks <- vector("list", length(unique(nodes$net_id)))
+names(networks) <- unique(nodes$net_id)
+networks_proj <- networks
+
+nerrors <- 0L
+for (n in names(networks)) {
+  
+  # Selecting the edges and nodes relevant for the network
+  edges_n <- edges[net_id == n, .(hcw_id, res_id)]
+  
+  nodes_hcw_n <- nodes[net_id == n & group == "hcw"]
+  nodes_res_n <- nodes[net_id == n & group == "residents"]
+  
+  # Trying to read the data
+  networks[[n]] <- tryCatch({
+    suppressWarnings(as.network(
+      x         = edges_n,
+      vertices  = rbind(nodes_hcw_n, nodes_res_n),
+      bipartite = TRUE,
+      bipartite_col = "is_actor"
+      ))
+  }, error = function(e) e)
+  
+  # Notification!
+  if (inherits(networks[[n]], what = "error")) {
+    message("Network ", n, " failed to be built")
+    nerrors <- nerrors + 1L
+    next
+  }
+  
+
+}
+
+# Reporting how many went OK
+message("Done! ", nerrors, "/", length(networks), " failed.")
+```
+
+Here are four networks:
+
+```{r viz}
+# Example of a graph
+set.seed(1231)
+
+net_figs <- vector("list", 4L)
+for (i in 1:4)
+  net_figs[[i]] <- nplot(
+    networks[[i]],
+    edge.curvature=0,
+    vertex.color = c(
+      hcw = "blue", residents = "darkgray"
+      )[networks[[i]] %v% "group"] |> adjustcolor(alpha.f = .5),
+    vertex.nsides = c(hcw = 4, residents = 20)[networks[[i]] %v% "group"],
+    vertex.rot    = 2 * pi / 8, vertex.size.range = c(.025, .05)
+    )
+
+# Putting them together using the gridExtra package
+gridExtra::grid.arrange(grobs=net_figs, nrow = 2, ncol = 2) 
+```
+
+
+# Final step: Saving the data
+
+```{r save-data}
+saveRDS(networks, "data/model_data_networks.rds")
+```
+
