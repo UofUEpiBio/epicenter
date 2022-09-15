@@ -39,6 +39,7 @@ For this analysis we will use the following R packages:
 library(network)
 library(data.table)
 library(ergm)
+library(ergm.multi)
 library(netplot)
 library(ggplot2)
 library(gridExtra)
@@ -143,14 +144,10 @@ this:
 
 ```{r}
 # log(n) part of the term.
-log_n <- log(summary(bignet_mat ~ degrange(0, by = "net_id")))
+log_n <- log(sapply(networks, \(n) summary(n ~ degrange(0))))
 
 # Let's see how it looks
-summary(
-  bignet_mat ~
-    edges +
-    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "log_n" )
-)
+summary(Networks(networks) ~ edges + N(~ Sum(log_n ~ edges, "a")))
 ```
 
 Let's see how it is implemented in an ERGM. Remember that we need to set
@@ -158,10 +155,9 @@ the term as an offset:
 
 ```{r model0, cache = TRUE, message=FALSE, warning=FALSE}
 res_big_ergm0 <- ergm(
-  bignet_mat ~ edges +
-    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "edgesxlog_n"),
-  control = do.call("control.ergm", c(default_control)),
-  constraints = ~ blockdiag("net_id")
+  Networks(networks) ~
+    N(~edges, ~log(n)),
+  control = do.call("control.ergm", c(default_control))
   )
 ```
 
@@ -181,12 +177,10 @@ level 2-stars) term:
 
 ```{r model1, cache = TRUE, eval = TRUE, warning=FALSE, message=FALSE, results='hide'}
 res_big_ergm1 <- ergm(
-  bignet_mat ~ edges +
-    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "edgesxlog_n") +
-    b2star(2) + 
-    Sum("sum"~Sum(log_n ~ b2starmix(2, attr = "net_id", diff = FALSE), "a"), "b2star x log_n"),
-  control = do.call("control.ergm", c(default_control)),
-  constraints = ~ blockdiag("net_id")
+  Networks(networks) ~
+    N(~edges, ~log(n)) +
+    N(~b2star(2), ~log(n)),
+  control = do.call("control.ergm", c(default_control))
   )
 ```
 
@@ -202,42 +196,6 @@ function will help us compute the predicted values per network (including the
 standard error and observed values, which we will later use for goodness-of-fit
 analyses.)
 
-```{r calc_ergm_pearson}
-# Matching residents
-calc_ergm_pearson <- function(net., model., seed. = 54656, nsim. = 1000L) {
-  
-  fm    <- formula(model.)
-  log_n <- log(network::network.size(net.))
-  
-  fm_new <- update.formula(fm, net. ~ .)
-  environment(fm_new) <- environment()
-  
-  # Retrieving the list of possible terms
-  obs_stats <- summary(fm_new)
-
-  stats. <- names(obs_stats)
-  
-  # Simulating
-  res <- simulate(
-    fm_new,
-    coef = coef(model.)[stats.],
-    output = "stats",
-    nsim = nsim.,
-    seed = seed.
-    )
-  
-  to_include <- intersect(colnames(res), stats.)
-  
-  data.frame(
-    s_name    = to_include,
-    s_obs     = obs_stats[to_include],
-    s_sim_avg = colMeans(res[,to_include]),
-    s_sim_std = sqrt(diag(cov(res[,to_include])))
-  )
-  
-}
-```
-
 To do this, we will perform the following steps:
 
 1. Compute the observed ERGM pearson standardized residuals,
@@ -248,31 +206,9 @@ To do this, we will perform the following steps:
 not included. Terms that were not included in the model that turn out to be
 siginificant will be then included in the ERGM:
 
-```{r model0-regressions-step1, cache = TRUE}
-library(parallel)
-cl <- makePSOCKcluster(4) # To make things a bit faster
-invisible({
-  clusterEvalQ(cl, library(ergm))
-})
-
-# Computing the residuals per network
-ergm_pearson <- parLapply(
-  cl = cl, 
-  X  = networks,
-  fun = calc_ergm_pearson,
-  model. = res_big_ergm1
-  )
-
-stopCluster(cl)
-
-# Binding the results together
-ergm_pearson <- rbindlist(ergm_pearson)
-ergm_pearson[, pearson := (s_obs - s_sim_avg)/s_sim_std]
-
-# Adding an id
-ergm_pearson$id <- sapply(names(networks), rep,  times = 4L, simplify = FALSE) |>
-  unlist()
-ergm_pearson
+```{r model0-regressions-step1, eval = FALSE}
+gof_res <- gofN(res_big_ergm1)
+plot(gof_res, against = ~sqrt(.fitted))
 ```
 
 Computing now the observed statistics of the following terms:
@@ -283,61 +219,6 @@ Computing now the observed statistics of the following terms:
 - One and two shared residents per worker: `b1dsp(1:2)`
 - Covariate effect of residents age: `b2cov("sqrt_age")`
 
-```{r model0-regressions-step2}
-ergm_pearson_terms <- lapply(networks, \(n) {
-  res <- summary(
-    n ~ b1star(3:4) + b2star(3:4) + b1starmix(2, "white", diff = FALSE) +
-      b2starmix(2, "type") + b1dsp(1:2) + b2cov("sqrt_age")
-    )
-  
-  data.table(setNames(rbind(res), names(res)))
-  }) |> rbindlist(fill = TRUE, )
-
-# Replacing missing with zeros. Missings are due to not observing those
-# categories in the networks
-ergm_pearson_terms <- ergm_pearson_terms[, lapply(.SD, fcoalesce, 0)]
-```
-
-Finally, we can take this data and fit an OLS
-
-```{r model0-regressions-step3}
-ergm_pearson_wide <- dcast(ergm_pearson[,.(id,s_name, pearson)], id~...)
-ergm_pearson_wide <- cbind(
-  ergm_pearson_wide,
-  ergm_pearson_terms
-)
-
-ergm_pearson_b2star2 <- lm(
-  b2star2 ~ 
-    b1star3 + b1star4 + b2star3 + b2star4 + 
-    `b1starmix.2.white.0` + `b2starmix.2.type.resident.CNA` +
-    `b2starmix.2.type.resident.Nurse` + `b1dsp1` + `b1dsp2` + `b2cov.sqrt_age` +
-    `b2starmix.2.type.resident.PT/OT` +
-    `b2starmix.2.type.resident.RT` + `b2starmix.2.type.resident.Other` +
-    `b2starmix.2.type.resident.Physician` + `b2starmix.2.type.resident.PA/NP`,
-  data = ergm_pearson_wide
-)
-
-ergm_pearson_edges <- lm(
-  edges ~
-    b1star3 + b1star4 + b2star3 + b2star4 + 
-    `b1starmix.2.white.0` + `b2starmix.2.type.resident.CNA` +
-    `b2starmix.2.type.resident.Nurse` + `b1dsp1` + `b1dsp2` + `b2cov.sqrt_age` +
-    `b2starmix.2.type.resident.PT/OT` +
-    `b2starmix.2.type.resident.RT` + `b2starmix.2.type.resident.Other` +
-    `b2starmix.2.type.resident.Physician` + `b2starmix.2.type.resident.PA/NP`,
-  data = ergm_pearson_wide
-)
-```
-
-```{r echo = FALSE, results='asis'}
-texreg::knitreg(
-  list(
-    b2star = ergm_pearson_b2star2,
-    edges = ergm_pearson_edges
-    )
-)
-```
 
 ## More covariate-based effects
 
@@ -345,59 +226,55 @@ Second model, Using homophily in race:
 
 ```{r model2, cache = TRUE, message=FALSE, warning=FALSE, eval = TRUE, results='hide'}
 res_big_ergm2 <- ergm(
-  bignet_mat ~ edges + 
-    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "edgesxlog_n") +
-    b2star(2) + 
-    b1starmix(2, "white", diff = FALSE),
-  control = do.call("control.ergm", default_control),
-  constraints = ~ blockdiag("net_id")
+  Networks(networks) ~ 
+    N(~edges, ~ log(n)) + 
+    N(~b2star(2), ~ log(n)) + 
+    N(~b1starmix(2, "white", diff = FALSE)),
+  control = do.call("control.ergm", default_control)
   )
 ```
 
 ```{r model3, cache = TRUE, message=FALSE, warning=FALSE, eval = TRUE, results='hide'}
 res_big_ergm3 <- ergm(
-  bignet_mat ~ edges + 
-    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "edgesxlog_n") +
-    b2star(2) + 
+  Networks(networks) ~ 
+    N(~edges, ~ log(n)) + 
+    N(~b2star(2), ~ log(n)) + 
     b1starmix(2, "white", diff = FALSE) +
     b2starmix(2, "type"),
-  control = do.call("control.ergm", default_control),
-  constraints = ~ blockdiag("net_id")
+  control = do.call("control.ergm", default_control)
   )
 ```
 
 ```{r model4, cache = TRUE, message=FALSE, warning=FALSE, eval = TRUE, results='hide'}
 res_big_ergm4 <- ergm(
-  bignet_mat ~ edges + 
-    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "edgesxlog_n") +
-    b2star(2) + 
+  Networks(networks) ~ 
+    N(~edges, ~ log(n)) + 
+    N(~b2star(2), ~ log(n)) + 
     b1starmix(2, "white", diff = FALSE) +
-    b2starmix(2, "type") + 
+    b2starmix(2, "type") +
     b1dsp(1:2) +
     b2cov("sqrt_age"),
-  control = do.call("control.ergm", default_control),
-  constraints = ~ blockdiag("net_id")
+  control = do.call("control.ergm", default_control)
   )
 ```
 
 ```{r model5, cache = TRUE, message=FALSE, warning=FALSE, eval = TRUE, results='hide'}
 res_big_ergm5 <- ergm(
-  bignet_mat ~ edges + 
-    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "edgesxlog_n") +
-    b2star(2) + 
+  Networks(networks) ~ 
+    N(~edges, ~ log(n)) + 
+    N(~b2star(2), ~ log(n)) + 
     b1starmix(2, "white", diff = FALSE) +
-    b2starmix(2, "type") + 
+    b2starmix(2, "type") +
     b1dsp(1:2) +
     b2cov("sqrt_age") +
-    b1starmix(2, "wound_care", diff = FALSE) + # 3 missing
+    # b1starmix(2, "wound_care", diff = FALSE) + # 3 missing
     b1starmix(2, "diabetes", diff = FALSE) +
     b1starmix(2, "dialysis", diff = FALSE) +
     b1starmix(2, "wheelchair", diff = FALSE) +
     b1starmix(2, "bedridden", diff = FALSE) +
-    b1starmix(2, "ventilator", diff = FALSE) +
-    b1starmix(2, "mdro", diff = FALSE),  # 5 missing
-  control = do.call("control.ergm", default_control),
-  constraints = ~ blockdiag("net_id")
+    b1starmix(2, "ventilator", diff = FALSE),
+    # b1starmix(2, "mdro", diff = FALSE),  # 5 missing
+  control = do.call("control.ergm", default_control)
   )
 ```
 
@@ -434,26 +311,17 @@ saveRDS(
     res_big_ergm5,
     names(networks)
     ), c(paste("Model", 0:5), "netnames")),
-  file = "2022-04-25-bipartite-ergms.rds"
-)
-
-# Functions
-saveRDS(
-  object = list(
-    namemilize = namemilize,
-    calc_ergm_pearson = calc_ergm_pearson
-  ),
-  file = "2022-04-25-bipartite-ergm-functions.rds"
+  file = "2022-09-15-bipartite-ergms.rds"
 )
 ```
 
 ```{r ventmodel, cache=TRUE}
 res_big_ergmvent <- ergm(
-  bignet_mat ~ edges + 
-    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "edgesxlog_n") +
-    b2star(2) + 
-    # b1starmix(2, "white", diff = FALSE) +
-    b2starmix(2, "type") + 
+  Networks(networks) ~ 
+    N(~edges, ~ log(n)) + 
+    N(~b2star(2), ~ log(n)) + 
+    b1starmix(2, "white", diff = FALSE) +
+    b2starmix(2, "type") +
     b1dsp(1:2) +
     b2cov("sqrt_age") +
     # b1starmix(2, "wound_care", diff = FALSE) + # 3 missing
@@ -461,10 +329,9 @@ res_big_ergmvent <- ergm(
     # b1starmix(2, "dialysis", diff = FALSE) +
     # b1starmix(2, "wheelchair", diff = FALSE) +
     b1starmix(2, "bedridden", diff = FALSE) +
-    b1starmix(2, "ventilator", diff = FALSE) +
-    b1starmix(2, "mdro", diff = FALSE),  # 5 missing
-  control = do.call("control.ergm", default_control),
-  constraints = ~ blockdiag("net_id")
+    b1starmix(2, "ventilator", diff = FALSE),# +
+    # b1starmix(2, "mdro", diff = FALSE),  # 5 missing
+  control = do.call("control.ergm", default_control)
   )
 ```
 
@@ -508,48 +375,8 @@ Model 5 (ergm4) seems to be one of the best fitting models, so let's
 start with that one. We will compute the standardized pearson residual
 as in Krivitstky, Coletti, and Hans (2022):
 
-```{r computing-resids, cache=TRUE}
-pearson_residuals <- parallel::mclapply(
-  networks, calc_ergm_pearson, model. = res_big_ergm2,
-  nsim. = 1e3, mc.cores = 8L
-  )
-pearson_residuals <- Map(
-  \(n,dat) cbind(dat, net = n),
-  n = names(pearson_residuals), dat = pearson_residuals)
-pearson_residuals <- rbindlist(pearson_residuals)
-pearson_residuals <- pearson_residuals[s_obs != 0]
-pearson_residuals[, t_stat := (s_obs - s_sim_avg)/s_sim_std]
+```{r gof, cache=TRUE}
+gof_res <- gofN(res_big_ergm1)
+plot(gof_res, against = ~sqrt(.fitted))
 ```
 
-```{r viz-residuals}
-library(ggplot2)
-ggplot(pearson_residuals, aes(y = t_stat, x = s_name)) +
-  geom_violin() +
-  labs(x = "Statistic", y = "Pearson Resid.") +
-  coord_flip() 
-```
-
-```{r viz-residuals-edges}
-library(ggplot2)
-ggplot(pearson_residuals[s_name == "edges"]) +
-  geom_point(
-    aes(
-      y = t_stat,
-      x = sqrt(s_sim_avg)
-    )
-  ) +
-  geom_hline(yintercept = 0, linetype = 2) +
-  labs(x = expression(sqrt(Fitted~Values~(edges))), y = "Pearson Resid.")
-```
-
-```{r viz-residuals-b2star2}
-ggplot(pearson_residuals[s_name == "b2star2"]) +
-  geom_point(
-    aes(
-      y = t_stat,
-      x = sqrt(s_sim_avg)
-    )
-  ) +
-  geom_hline(yintercept = 0, linetype = 2) +
-  labs(x = expression(sqrt(Fitted~Values~(b2star2))), y = "Pearson Resid.")
-```
