@@ -125,6 +125,17 @@ default_control <- list(
   # MCMC.interval   = 1024 * 4,
   # parallel        = 2L
 )
+
+# Also, all models will feature the same set of networkws:
+complete_nets <- (!sapply(networks, \(n) {
+  any(is.na(n %v% "wound_care")) |
+    any(is.na(n %v% "mdro")) |
+    any(is.na(n %v% "dialysis")) |
+    any(is.na(n %v% "diabetes")) |
+    any(is.na(n %v% "wheelchair"))
+})) |> which()
+
+networks <- networks[complete_nets]
 ```
 
 We can could use Krivitsky (2011) offset, which in the case of multiple
@@ -287,13 +298,20 @@ texreg::knitreg(
     res_big_ergm2,
     res_big_ergm3,
     res_big_ergm4
-    ), paste("Model", 0:4))
+    ), paste("Model", 0:4)),
+  # Excluding infinte coefficients. Only the mix in resident something matters.
+  omit.coef = '2\\.type\\.([^r]|.+PA/NP|.+Physician)',
+  single.row = TRUE
 )
 cat("\\end{landscape}\n\n")
 ```
 
 ```{r echo=FALSE, results='asis'}
-texreg::knitreg(list("Model 5" = res_big_ergm5))
+texreg::knitreg(
+  list("Model 5" = res_big_ergm5),
+  omit.coef = '2\\.type\\.([^r]|.+PA/NP|.+Physician)',
+  single.row = TRUE
+  )
 ```
 
 Finally, before proceeding to the goodness-of-fit, we will store the estimates 
@@ -316,7 +334,7 @@ saveRDS(
 ```
 
 ```{r ventmodel, cache=TRUE}
-res_big_ergmvent <- ergm(
+res_big_ergm6 <- ergm(
   Networks(networks) ~ 
     N(~edges, ~ log(n)) + 
     N(~b2star(2), ~ log(n)) + 
@@ -324,20 +342,108 @@ res_big_ergmvent <- ergm(
     b2starmix(2, "type") +
     b1dsp(1:2) +
     b2cov("sqrt_age") +
-    # b1starmix(2, "wound_care", diff = FALSE) + # 3 missing
-    # b1starmix(2, "diabetes", diff = FALSE) +
-    # b1starmix(2, "dialysis", diff = FALSE) +
-    # b1starmix(2, "wheelchair", diff = FALSE) +
+    b1starmix(2, "wound_care", diff = FALSE) + 
+    b1starmix(2, "diabetes", diff = FALSE) +
+    b1starmix(2, "dialysis", diff = FALSE) +
+    b1starmix(2, "wheelchair", diff = FALSE) +
     b1starmix(2, "bedridden", diff = FALSE) +
-    b1starmix(2, "ventilator", diff = FALSE),# +
-    # b1starmix(2, "mdro", diff = FALSE),  # 5 missing
+    b1starmix(2, "ventilator", diff = FALSE) +
+    b1starmix(2, "mdro", diff = FALSE),  
+  control = do.call("control.ergm", default_control)
+  )
+
+res_big_ergm7 <- ergm(
+  Networks(networks) ~ 
+    N(~edges, ~ log(n)) + 
+    N(~b2star(2)) + 
+    N(~b1starmix(2, "white", diff = FALSE), ~log(n)) +
+    b2starmix(2, "type") +
+    N(~b1dsp(1:2)) +
+    # b2cov("sqrt_age") +
+    N(~b1starmix(2, "wound_care", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "diabetes", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "dialysis", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "wheelchair", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "bedridden", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "ventilator", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "mdro", diff = FALSE), ~log(n)),  
+  control = do.call("control.ergm", default_control)
+  )
+
+res_big_ergm8 <- ergm(
+  Networks(networks) ~ 
+    N(~edges, ~ log(n)) + 
+    N(~b2star(2)) + 
+    N(~b1starmix(2, "white", diff = FALSE), ~log(n)) +
+    b2starmix(2, "type") +
+    N(~b1dsp(1:2)) +
+    # b2cov("sqrt_age") +
+    # N(~b1starmix(2, "wound_care", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "diabetes", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "dialysis", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "wheelchair", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "bedridden", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "ventilator", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "mdro", diff = FALSE), ~log(n)),  
+  control = do.call("control.ergm", default_control)
+  )
+
+
+res_big_ergm9 <- ergm(
+  Networks(networks) ~ 
+    N(~edges, ~ log(n)) + 
+    N(~b2star(2)) + 
+    N(~b1starmix(2, "white", diff = FALSE), ~log(n)) +
+    b2starmix(2, "type") +
+    N(~b1dsp(1:2)) +
+    # b2cov("sqrt_age") +
+    # N(~b1starmix(2, "wound_care", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "diabetes", diff = FALSE), ~log(n)) +
+    # N(~b1starmix(2, "dialysis", diff = FALSE), ~log(n)) +
+    # N(~b1starmix(2, "wheelchair", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "bedridden", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "ventilator", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "mdro", diff = FALSE), ~log(n)),  
+  control = do.call("control.ergm", default_control)
+  )
+
+res_big_ergm10 <- ergm(
+  Networks(networks) ~ 
+    N(~edges, ~ log(n)) + 
+    N(~b2star(2)) + 
+    N(~b1starmix(2, "white", diff = FALSE), ~log(n)) +
+    b2starmix(2, "type") +
+    N(~b1dsp(1:2)) +
+    # b2cov("sqrt_age") +
+    # N(~b1starmix(2, "wound_care", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "diabetes", diff = FALSE), ~log(n)) +
+    # N(~b1starmix(2, "dialysis", diff = FALSE), ~log(n)) +
+    # N(~b1starmix(2, "wheelchair", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "bedridden", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "ventilator", diff = FALSE), ~log(n)), #+
+    # N(~b1starmix(2, "mdro", diff = FALSE), ~log(n))  
   control = do.call("control.ergm", default_control)
   )
 ```
 
 ```{r results='asis'}
 texreg::knitreg(
-  res_big_ergmvent
+  setNames(list(
+    res_big_ergm0,
+    res_big_ergm1,
+    res_big_ergm2,
+    res_big_ergm3,
+    res_big_ergm4,
+    # res_big_ergm5,
+    # res_big_ergm6,
+    # res_big_ergm7,
+    res_big_ergm8,
+    res_big_ergm9,
+    res_big_ergm10
+    ), paste("Model", c(0:4, 8:10))),
+  # Excluding infinte coefficients. Only the mix in resident something matters.
+  omit.coef = '2\\.type\\.([^r]|.+PA/NP|.+Physician)',
+  single.row = TRUE
 )
 ```
 
@@ -376,7 +482,7 @@ start with that one. We will compute the standardized pearson residual
 as in Krivitstky, Coletti, and Hans (2022):
 
 ```{r gof, cache=TRUE}
-gof_res <- gofN(res_big_ergm1)
-plot(gof_res, against = ~sqrt(.fitted))
+gof_res <- gofN(res_big_ergm10)
+plot(gof_res, against = ~factor(n))
 ```
 
