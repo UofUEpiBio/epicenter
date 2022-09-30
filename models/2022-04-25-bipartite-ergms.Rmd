@@ -314,25 +314,6 @@ texreg::knitreg(
   )
 ```
 
-Finally, before proceeding to the goodness-of-fit, we will store the estimates 
-of all models fitted here for post analysis:
-
-```{r storing-models}
-# Model fits
-saveRDS(
-  object = setNames(list(
-    res_big_ergm0,
-    res_big_ergm1,
-    res_big_ergm2,
-    res_big_ergm3,
-    res_big_ergm4,
-    res_big_ergm5,
-    names(networks)
-    ), c(paste("Model", 0:5), "netnames")),
-  file = "2022-09-15-bipartite-ergms.rds"
-)
-```
-
 ```{r ventmodel, cache=TRUE}
 res_big_ergm6 <- ergm(
   Networks(networks) ~ 
@@ -424,6 +405,60 @@ res_big_ergm10 <- ergm(
     # N(~b1starmix(2, "mdro", diff = FALSE), ~log(n))  
   control = do.call("control.ergm", default_control)
   )
+
+res_big_ergm11 <- ergm(
+  Networks(networks) ~ 
+    N(~edges, ~ log(n)) + 
+    N(~b2star(2), ~ log(n)) + 
+    N(~b1starmix(2, "white", diff = FALSE), ~log(n)) +
+    b2starmix(2, "type") +
+    N(~b1dsp(1:2)) +
+    # b2cov("sqrt_age") +
+    # N(~b1starmix(2, "wound_care", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "diabetes", diff = FALSE), ~log(n)) +
+    # N(~b1starmix(2, "dialysis", diff = FALSE), ~log(n)) +
+    # N(~b1starmix(2, "wheelchair", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "bedridden", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "ventilator", diff = FALSE), ~log(n)), #+
+    # N(~b1starmix(2, "mdro", diff = FALSE), ~log(n))  
+  control = do.call("control.ergm", default_control)
+  )
+
+res_big_ergm12 <- ergm(
+  Networks(networks) ~ 
+    N(~edges, ~ log(n)) + 
+    N(~b2star(2), ~ log(n)) + 
+    N(~b1starmix(2, "white", diff = FALSE), ~log(n)) +
+    b2starmix(2, "type") +
+    N(~b1dsp(1:2)) +
+    # b2cov("sqrt_age") +
+    # N(~b1starmix(2, "wound_care", diff = FALSE), ~log(n)) +
+    # N(~b1starmix(2, "diabetes", diff = FALSE), ~log(n)) +
+    # N(~b1starmix(2, "dialysis", diff = FALSE), ~log(n)) +
+    # N(~b1starmix(2, "wheelchair", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "bedridden", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "ventilator", diff = FALSE), ~log(n)), #+
+    # N(~b1starmix(2, "mdro", diff = FALSE), ~log(n))  
+  control = do.call("control.ergm", default_control)
+  )
+
+res_big_ergm13 <- ergm(
+  Networks(networks) ~ 
+    N(~edges, ~ log(n)) + 
+    N(~b2star(2)) + 
+    N(~b1starmix(2, "white", diff = FALSE), ~log(n)) +
+    b2starmix(2, "type") +
+    N(~b1dsp(1:2)) +
+    # b2cov("sqrt_age") +
+    # N(~b1starmix(2, "wound_care", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "diabetes", diff = FALSE), ~log(n)) +
+    # N(~b1starmix(2, "dialysis", diff = FALSE), ~log(n)) +
+    # N(~b1starmix(2, "wheelchair", diff = FALSE), ~log(n)) +
+    # N(~b1starmix(2, "bedridden", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "ventilator", diff = FALSE), ~log(n)) +
+    N(~b1starmix(2, "mdro", diff = FALSE), ~log(n)),
+  control = do.call("control.ergm", default_control)
+  )
 ```
 
 ```{r results='asis'}
@@ -434,17 +469,63 @@ texreg::knitreg(
     res_big_ergm2,
     res_big_ergm3,
     res_big_ergm4,
-    # res_big_ergm5,
-    # res_big_ergm6,
-    # res_big_ergm7,
-    res_big_ergm8,
-    res_big_ergm9,
-    res_big_ergm10
-    ), paste("Model", c(0:4, 8:10))),
+    res_big_ergm5
+    ), paste("Model", c(0:5))),
   # Excluding infinte coefficients. Only the mix in resident something matters.
   omit.coef = '2\\.type\\.([^r]|.+PA/NP|.+Physician)',
   single.row = TRUE
 )
+
+texreg::knitreg(
+  setNames(list(
+    res_big_ergm8,
+    res_big_ergm9,
+    res_big_ergm10,
+    res_big_ergm11,
+    res_big_ergm12,
+    res_big_ergm13
+    ), paste("Model", c(8:13))),
+  # Excluding infinte coefficients. Only the mix in resident something matters.
+  omit.coef = '2\\.type\\.([^r]|.+PA/NP|.+Physician)',
+  single.row = TRUE
+)
+
+save(file = "2022-04-25-bipartite-ergms.rdata", list = ls(pattern = "^res_big_ergm.+"))
+```
+
+
+So far, model 10 is the best overall fit. Let's refit the model with the default MCMLE parameters
+
+```{r refit-best}
+default_control_best <- list(
+  seed          = 485, # We change the default
+  main.method   = "Stochastic-Approximation",
+  SA.samplesize	= 1024 * 16,
+  SA.interval   = 1024 * 32, # 32 times the default (it has very high autocorr)
+  SA.nsubphases = 4 * 1, # 1 the default
+  SA.burnin     = 1024 * 32, # Twice the default
+  MCMLE.interval = 1024 * 32, # 32 times
+  RM.interval = 1024 * 32 # 32 times... This is being passed to SA instead
+)
+
+res_best2 <- ergm(
+  res_big_ergm10$formula,
+  control = do.call(control.ergm, default_control_best)
+  )
+
+# Did things changed?
+texreg::knitreg(
+  setNames(list(
+    res_big_ergm10,
+    res_best
+    ), c("Best model", "Refit with sampler size")),
+  # Excluding infinte coefficients. Only the mix in resident something matters.
+  omit.coef = '2\\.type\\.([^r]|.+PA/NP|.+Physician)',
+  single.row = TRUE
+)
+
+# Generating diagnostics
+diag_ergm2 <- mcmc.diagnostics(res_best2, center = TRUE)
 ```
 
 
@@ -482,7 +563,7 @@ start with that one. We will compute the standardized pearson residual
 as in Krivitstky, Coletti, and Hans (2022):
 
 ```{r gof, cache=TRUE}
-gof_res <- gofN(res_big_ergm10)
+gof_res <- gofN(res_best2)
 plot(gof_res, against = ~factor(n))
 ```
 
