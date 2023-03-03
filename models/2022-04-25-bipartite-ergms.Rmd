@@ -508,7 +508,7 @@ default_control_best <- list(
   RM.interval = 1024 * 32 # 32 times... This is being passed to SA instead
 )
 
-res_best2 <- ergm(
+res_best <- ergm(
   res_big_ergm10$formula,
   control = do.call(control.ergm, default_control_best)
   )
@@ -516,16 +516,16 @@ res_best2 <- ergm(
 # Did things changed?
 texreg::knitreg(
   setNames(list(
-    res_big_ergm10,
+    # res_big_ergm10,
     res_best
-    ), c("Best model", "Refit with sampler size")),
+    ), c("Refit with sampler size")),
   # Excluding infinte coefficients. Only the mix in resident something matters.
   omit.coef = '2\\.type\\.([^r]|.+PA/NP|.+Physician)',
   single.row = TRUE
 )
 
 # Generating diagnostics
-diag_ergm2 <- mcmc.diagnostics(res_best2, center = TRUE)
+# diag_ergm <- mcmc.diagnostics(res_best, center = TRUE)
 ```
 
 
@@ -563,7 +563,7 @@ start with that one. We will compute the standardized pearson residual
 as in Krivitstky, Coletti, and Hans (2022):
 
 ```{r gof, cache=TRUE}
-gof_res <- gofN(res_best2)
+gof_res <- gofN(res_best)
 plot(gof_res, against = ~factor(n))
 ```
 

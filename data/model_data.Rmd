@@ -141,7 +141,7 @@ creating the network data:
 
 ```{r}
 # Edgelist
-edges <- unique(dat[, .(net_id, hcw_id, res_id)])
+edges <- unique(dat[, .(net_id, hcw_id, res_id, unit_type)])
 
 # Nodes dataset
 nodes <- rbind(
@@ -159,7 +159,9 @@ nodes <- rbind(
     wheelchair = 0L,
     bedridden  = 0L,
     ventilator = 0L,
-    mdro       = 0L)],
+    mdro       = 0L #,
+    # facility_t = unit_type
+    )],
   dat[, .(
     id = res_id,
     net_id, state, Fac_Name, Fac_Unit,
@@ -168,7 +170,9 @@ nodes <- rbind(
     type = "resident", group = "residents",
     is_actor = FALSE,
     # But no for the residents
-    wound_care, diabetes, dialysis, wheelchair, bedridden, ventilator, mdro)]
+    wound_care, diabetes, dialysis, wheelchair, bedridden, ventilator, mdro #,
+    # facility_t = unit_type
+    )]
 ) |> unique()
 ```
 
@@ -299,7 +303,7 @@ nerrors <- 0L
 for (n in names(networks)) {
   
   # Selecting the edges and nodes relevant for the network
-  edges_n <- edges[net_id == n, .(hcw_id, res_id)]
+  edges_n <- edges[net_id == n, .(hcw_id, res_id, unit_type)]
   
   nodes_hcw_n <- nodes[net_id == n & group == "hcw"]
   nodes_res_n <- nodes[net_id == n & group == "residents"]
@@ -307,7 +311,7 @@ for (n in names(networks)) {
   # Trying to read the data
   networks[[n]] <- tryCatch({
     suppressWarnings(as.network(
-      x         = edges_n,
+      x         = as.data.frame(edges_n),
       vertices  = rbind(nodes_hcw_n, nodes_res_n),
       bipartite = TRUE,
       bipartite_col = "is_actor"
@@ -318,6 +322,7 @@ for (n in names(networks)) {
   if (inherits(networks[[n]], what = "error")) {
     message("Network ", n, " failed to be built")
     nerrors <- nerrors + 1L
+    stop()
     next
   }
   
@@ -350,6 +355,44 @@ for (i in 1:4)
 gridExtra::grid.arrange(grobs=net_figs, nrow = 2, ncol = 2) 
 ```
 
+```{r}
+set.seed(1331);nplot(
+    networks[[1]], 
+    edge.curvature=0,
+    bg.col = "transparent",
+    vertex.color = c(
+      hcw = "blue", residents = "darkgray"
+      )[networks[[i]] %v% "group"] |> adjustcolor(alpha.f = .9),
+    vertex.nsides = c(hcw = 4, residents = 20)[networks[[i]] %v% "group"],
+    vertex.rot    = 2 * pi / 8,
+    vertex.size.range = c(.025, .05),
+    vertex.label = "",
+    edge.color = ~ego + alter,
+    vertex.frame.color = "darkgray"
+    ) |>
+  netplot::nplot_legend(
+    labels = c("healthcare worker", "Resident"),
+    pch    = c(15, 19),
+    packgrob.args = list(side="bottom"),
+    ncol = 2,
+    gp = gpar(
+      fill = c("blue", "gray"),
+      col = c("blue", "gray")
+      )
+    
+  )
+```
+
+
+# Checking the networks
+
+```{r checking-networks}
+wrong_length <- sapply(networks, \(n) {
+  length(unique(n %e% "unit_type")) != 1L
+})
+
+which(wrong_length)
+```
 
 # Final step: Saving the data
 
