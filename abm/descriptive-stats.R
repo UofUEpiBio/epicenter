@@ -2,7 +2,9 @@ library(ergm)
 library(sna)
 library(data.table)
 
-nets <- readRDS("models/2022-04-25-bipartite-ergms.rds")[["Model 5"]]
+load("LTCF_final_report/res10_new.RData")
+
+nets <- res10_new
 
 degs <- degree(nets$network, cmode = "outdegree")
 
