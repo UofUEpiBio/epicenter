@@ -1,7 +1,7 @@
 ---
 title: "Bipartite networks of health care workers and residents in long-term care facilities"
-output:
-  pdf_document:
+format:
+  pdf:
     extra_dependencies:
       - pdflscape
       - rotating
@@ -12,11 +12,18 @@ output:
 editor_options: 
   markdown: 
     wrap: 80
+date: 2023-08-26
+author:
+  - Chong Zhang
+  - George G. Vega Yon
+date-modified: 2025-01-03
 ---
 
 8/28/2023
 
 ```{r setup, include=FALSE}
+#| label: setup
+#| include: false
 knitr::opts_chunk$set(echo = TRUE, message = FALSE)
 # a few personal functions to make things easy
 naton=function(x){y=x;y[is.na(x)]=0; return(y)} # convert NA to 0
@@ -48,9 +55,11 @@ and compared results before and after adding back the outlier.
 
 
 
-```{r packages, message=FALSE, warning=FALSE}
+```{r}
+#| label: packages
+#| message: false
+#| warning: false
 library(network)
-library(tidyverse)
 library(data.table)
 library(ergm)
 library(ergm.multi)
@@ -58,26 +67,26 @@ library(netplot)
 library(ggplot2)
 library(gridExtra)
 library(parallel)
-library(Rglpk)
+
+sessionInfo()
 ```
 
-Package versions:
-```{r }
-packageVersion("network")
-packageVersion("ergm")
-packageVersion("ergm.multi")
-```
-Load network data 
-```{r read-clean}
-load('network93_f2.RData') # a list of 93 networks to fit ERGMs
-load('big_net_mat_f2.RData') # a large network (all 99 networks combined) for summaries.
-load('dd_nodal_attr.RData') # This is a data frame with nodal attributes for all networks
+Load network data
+
+```{r}
+#| label: read-clean
+load('../data/network93_f2.RData') # a list of 93 networks to fit ERGMs
+load('../data/big_net_mat_f2.RData') # a large network (all 99 networks combined) for summaries.
+load('../data/dd_nodal_attr.RData') # This is a data frame with nodal attributes for all networks
 #knitr::purl("2023-08-17-bipartite-ergms_multi.Rmd", output = "rcode.R")
 ```
 
 
 ## Descriptive summary of ergm terms in our network
-```{r, echo=FALSE}
+
+```{r}
+#| label: descriptive-summary
+#| echo: false
 log_n <- log(summary(bignet_mat ~ degrange(0, by = "net_id")))
 # Summaries model parameters () 
 termsum=summary(bignet_mat ~
@@ -104,9 +113,7 @@ termsum=summary(bignet_mat ~
     b2factor("diabetes")+
     b2factor("wheelchair")
 )
-```
 
-```{r, echo=FALSE}
 dfrt=data.table(Ergm.Terms=names(termsum), Count=as.integer(termsum))
 print(dfrt)
 ```
@@ -115,7 +122,8 @@ print(dfrt)
 # Fitting ERGMs
 In the following models, we removed network 57 due to it frequently being an outlier.
 The model fitting is a lot faster when 57 is removed. We could add it back later if needed.
-```{r }
+```{r}
+#| label: prepare-data
 networks1=networks[-57] # 92 networks now
 
 dd$NetID=as.numeric(dd$NetID)
@@ -125,9 +133,9 @@ dd$NetID[dd$NetID>57]=dd$NetID[dd$NetID>57]-1 # re-number the networks after rem
 
 # Get indices of networks on which each term will be evaluated.
 # For HCW type homophily (b2starmix(2)), the netowkrs need to have at least two HCWs of that type. 
-Nurse=dd[, n:=sum(Nurse==1), NetID][n>1, unique(NetID)] %>% as.numeric 
-CNA=dd[, n:=sum(CNA==1), NetID][n>1, unique(NetID)] %>% as.numeric
-PTOTRT=dd[, n:=sum(PTOTRT==1), NetID][n>1, unique(NetID)] %>% as.numeric
+Nurse=dd[, n:=sum(Nurse==1), NetID][n>1, unique(NetID)] |> as.numeric() 
+CNA=dd[, n:=sum(CNA==1), NetID][n>1, unique(NetID)] |> as.numeric()
+PTOTRT=dd[, n:=sum(PTOTRT==1), NetID][n>1, unique(NetID)] |> as.numeric()
 Other=dd[, n:=sum(Other==1), NetID][n>1, unique(NetID)] 
 
 # For b2factor (resident type), the networks need to have at least 1 resident of that type. 
@@ -148,6 +156,7 @@ wheelchair2=dd[, n:=sum(wheelchair=='Yes'), NetID][n>1, unique(NetID)]
 
 Common controls for ergm models: we use Stochastic approximation since it is fast. 
 ```{r}
+#| label: controls
 default_control.1 <- list(
   seed            = 44485,
   main.method     = "Stochastic-Approximation", # Robbins-Monro Stochastic Approx.
@@ -159,7 +168,12 @@ default_control.1 <- list(
 
 Model 0: edges only.
 Since we do not have isolates in our network by design, we restrict the network by adding offset terms b1degree(0) and b2degree(0) with coefficients -Inf.
-```{r, cache = TRUE, message=FALSE, warning=FALSE, results='hide'}
+```{r}
+#| label: model0
+#| cache: true
+#| message: false
+#| warning: false
+#| results: hide
 res0 <- ergm(
   Networks(networks1) ~
   N(~edges, ~log(n))+
@@ -170,7 +184,12 @@ res0 <- ergm(
 ```
 
 Add b2 2-star (second level 2-stars) term:
-```{r , cache = TRUE, message=FALSE, warning=FALSE, results='hide'}
+```{r}
+#| label: model1
+#| cache: true
+#| message: false
+#| warning: false
+#| results: hide
 res1 <- ergm(
   Networks(networks1) ~
   N(~edges, ~log(n))+
@@ -183,7 +202,12 @@ res1 <- ergm(
 
 Try replacing the b2start(2) with b2concurrent (which counts the number of residents with two or more HCWs).
 
-```{r, cache = TRUE, message=FALSE, warning=FALSE, results='hide'}
+```{r}
+#| label: model1v2
+#| cache: true
+#| message: false
+#| warning: false
+#| results: hide
 res1v2 <- ergm(
   Networks(networks1) ~
   N(~edges, ~log(n))+
@@ -196,7 +220,13 @@ res1v2 <- ergm(
 
 
 Now try gwb1dsp - (b2star2, b2concurrent, and gwb1dsp are all correlated, counting HCWs sharing residents)
-```{r, eval=FALSE, cache = TRUE, message=FALSE, warning=FALSE, results='hide'} 
+```{r} 
+#| label: model2
+#| cache: true
+#| eval: true
+#| message: false
+#| warning: false
+#| results: hide
 # This takes a long time to run so we just load the saved result in the next chunk.
 res2.cnew <- ergm(
   Networks(networks1) ~
@@ -204,16 +234,28 @@ res2.cnew <- ergm(
   N(~gwb1dsp(0.75, fixed=TRUE))+ # we compared decay parameter of 0.25, 0.5, 0.75, and 1. 0.75 seems to fit the best.
   +offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
-  control = do.call("control.ergm", default_control))
+  control = do.call("control.ergm", default_control.1))
 ```
 
-```{r, echo=FALSE}
+```{r}
+#| label: old-loads0
+#| eval: false
+#| echo: false
 load('res2_cnew.RData')
 ```
 
-```{r , echo = FALSE, results='asis'}
-texreg::knitreg( list('Model 0'=res0, 'Model 1'=res1, 'Mode1 v2'=res1v2, 'Model 2'=res2.cnew),
-  single.row = TRUE,  scalebox   = .8)
+```{r}
+#| label: print-models
+texreg::knitreg(
+  list(
+    'Model 0'=res0,
+    'Model 1'=res1,
+    'Mode1 v2'=res1v2,
+    'Model 2'=res2.cnew
+    ),
+  single.row = TRUE,
+  scalebox = .8
+  )
 ```
 
 Model 2 fits the best. 
@@ -221,7 +263,13 @@ We did also check whether there is an interaction between gwb1dsp and network si
 The interaction term is not significant, so we did not include it.
 
 Now add b2factor and b2starmix (just Nurse for now)
-```{r, eval=FALSE, cache = TRUE, message=FALSE, warning=FALSE, results='hide'}
+```{r}
+#| label: model5
+#| cache: true
+#| eval: true
+#| message: false
+#| warning: false
+#| results: hide
 res5new <- ergm(
   Networks(networks1) ~
   N(~edges, ~log(n))+
@@ -232,10 +280,13 @@ res5new <- ergm(
     N(~b2factor('bedridden'), subset=bedridden)+
   offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
-  control = do.call("control.ergm", default_control))
+  control = do.call("control.ergm", default_control.1))
 ```
 
-```{r, echo=FALSE}
+```{r}
+#| eval: false
+#| echo: false
+#| label: old-loads
 load('res5_b2factor_Nurse_new.RData')
 load('res6_new.RData')
 load('res7_new.RData')
@@ -246,7 +297,13 @@ load('res10_new.RData')
 
 Keep adding more terms
 
-```{r, eval=FALSE, cache = TRUE, message=FALSE, warning=FALSE, results='hide'}
+```{r}
+#| label: model6
+#| cache: true
+#| eval: true
+#| message: false
+#| warning: false
+#| results: hide
 res6_new <- ergm(
   Networks(networks1) ~
     N(~edges, ~log(n))+
@@ -258,10 +315,16 @@ res6_new <- ergm(
     N(~b1starmix(2, 'wound_care', diff=TRUE), subset=wound_care2)+
     offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
-  control = do.call("control.ergm", default_control))
+  control = do.call("control.ergm", default_control.1))
 ```
-  
-```{r, eval=FALSE, cache = TRUE, message=FALSE, warning=FALSE, results='hide'}
+
+```{r}
+#| label: model8new
+#| cache: true
+#| eval: true
+#| message: false
+#| warning: false
+#| results: hide
 res8_new <- ergm(
   Networks(networks1) ~
     N(~edges, ~log(n))+
@@ -275,16 +338,30 @@ res8_new <- ergm(
     N(~b1starmix(2, 'diabetes', diff=TRUE), subset=diabetes2)+
     offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
-  control = do.call("control.ergm", default_control))
+  control = do.call("control.ergm", default_control.1))
 ```
 
 
 ```{r , echo = FALSE, results='asis'}
-texreg::knitreg( list('Model 5'=res5new, 'Model6'=res6_new, 'Model 7'=res7_new, 'Model8'=res8_new), single.row = TRUE, scalebox  = .8)
-
+texreg::knitreg(
+  list(
+    'Model 5' = res5new,
+    'Model 6' = res6_new,
+    'Model 7' = res7_new,
+    'Model 8' = res8_new
+    ),
+  single.row = TRUE,
+  scalebox = .8
+  )
 ```
 
-```{r, eval=FALSE, cache = TRUE, message=FALSE, warning=FALSE, results='hide'}
+```{r}
+#| label: res9new
+#| cache: true
+#| eval: true
+#| message: false
+#| warning: false
+#| results: hide
 res9_new <- ergm(
   Networks(networks1) ~
     N(~edges, ~log(n))+
@@ -299,11 +376,14 @@ res9_new <- ergm(
     N(~b2factor('mdro'), subset=mdro)+
     offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
-  control = do.call("control.ergm", default_control))
+  control = do.call("control.ergm", default_control.1))
 ```
 
 
-```{r, echo=FALSE}
+```{r}
+#| eval: false
+#| label: old-loads2
+#| echo: false
 load('res11_new.RData')
 load('res12_new.RData')
 load('res13_new.RData')
@@ -325,13 +405,13 @@ Now we add network 57 back, and fit model 10 and model 12 (considered the best m
 We must re-calculate the indices of networks on which each term will be evaluated. The following code does this.
 
 ```{r}
-load('dd_nodal_attr.RData')
+load('../data/dd_nodal_attr.RData')
 setDT(dd)
 dd$NetID=as.numeric(dd$NetID)
 
-Nurse=dd[, n:=sum(Nurse==1), NetID][n>1, unique(NetID)] %>% as.numeric 
-CNA=dd[, n:=sum(CNA==1), NetID][n>1, unique(NetID)] %>% as.numeric
-PTOTRT=dd[, n:=sum(PTOTRT==1), NetID][n>1, unique(NetID)] %>% as.numeric
+Nurse=dd[, n:=sum(Nurse==1), NetID][n>1, unique(NetID)] |> as.numeric() 
+CNA=dd[, n:=sum(CNA==1), NetID][n>1, unique(NetID)] |> as.numeric()
+PTOTRT=dd[, n:=sum(PTOTRT==1), NetID][n>1, unique(NetID)] |> as.numeric()
 Other=dd[, n:=sum(Other==1), NetID][n>1, unique(NetID)] 
 nuni(c(Other, PTOTRT)) # 46
 

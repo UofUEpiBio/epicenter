@@ -2,4 +2,16 @@ FROM docker.io/rocker/r-ver:4.4.0
 
 RUN install2.r ergm.multi tinytex quarto data.table
 
+RUN apt-get update && apt-get install -y --no-install-recommends wget
+
+RUN wget https://github.com/quarto-dev/quarto-cli/releases/download/v1.6.39/quarto-1.6.39-linux-amd64.deb && \
+    dpkg -i quarto-1.6.39-linux-amd64.deb
+
+# Installing GLPK
+RUN apt-get install -y --no-install-recommends libglpk-dev
+
+# Additional R packages
+RUN install2.r netplot ggplot2 gridExtra texreg
+
+
 CMD ["bash"]
