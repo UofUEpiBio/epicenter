@@ -1,0 +1,5 @@
+FROM docker.io/rocker/r-ver:4.4.0
+
+RUN install2.r ergm.multi tinytex quarto data.table
+
+CMD ["bash"]
