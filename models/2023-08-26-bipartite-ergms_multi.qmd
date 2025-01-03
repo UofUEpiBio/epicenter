@@ -422,7 +422,8 @@ mdro2=dd[, n:=sum(mdro=='Yes'), NetID][n>1, unique(NetID)]
 wheelchair2=dd[, n:=sum(wheelchair=='Yes'), NetID][n>1, unique(NetID)]  # requiring at least 2 nurses in a network 
 wheelchair2
 
-default_control.1 <- list(seed = 1123)
+# Too slow to fit this model, it's already been about 2 hours.
+# default_control.1 <- list(seed = 1123)
 
 res12_93 <- ergm(
   Networks(networks) ~
@@ -458,15 +459,17 @@ load('res12_93.RData')
 ```
 
 
-```{r , echo = FALSE, results='asis'}
+```{r}
 #| label: print-up-to-model9
+#| echo: false
+#| results: asis
 texreg::knitreg(
   list(
-    'Model 9'  = res9_new,
-    'Model 10' = res10_new,
-    'Model 11' = res11_new,
-    'Model 12' = res12_new,
-    'Model 13' = res13_new
+    'Model 9'  = res9_new
+    # 'Model 10' = res10_new,
+    # 'Model 11' = res11_new,
+    # 'Model 12' = res12_new,
+    # 'Model 13' = res13_new
   ),
   single.row = TRUE, scalebox = .8
 )
@@ -509,9 +512,30 @@ wheelchair2
 ```
 
 
-```{r , echo = FALSE, results='asis'}
-texreg::knitreg( list( 'Model 10 on 92 networks'=res10_new, 'Model 10 on 93 networks'=res10_93), single.row = TRUE, scalebox  = .8)
-texreg::knitreg( list( 'Model 12 on 92 networks'=res12_new, 'Model 12 on 93 networks'=res12_93), single.row = TRUE, scalebox  = .8)
+```{r}
+#| eval: false
+texreg::knitreg(
+  list(
+    # 'Model 10 on 92 networks'=res10_new,
+    # 'Model 10 on 93 networks'=res10_93
+  ),
+  single.row = TRUE,
+  scalebox = .8
+)
+```
+
+```{r}
+#| eval: true
+#| results: asis
+texreg::texreg(
+  list(
+    # 'Model 12 on 92 networks'=res12_new,
+    'Model 12 on 93 networks'=res12_93
+    ),
+  single.row = TRUE,
+  scalebox = .8,
+  use.packages = FALSE
+  )
 ```
 
 
@@ -522,8 +546,8 @@ Evaluate goodness of fit.
 #| cache: true
 #| message: false
 #| warning: false
-#| results: hide
-g=gofN(res12_93) # saved as gofN_model12_93 
+g=gofN(res12_93) # saved as gofN_model12_93
+summary(g)
 saveRDS(g, '../data/gofN_model12_93.rds')
 ```
 

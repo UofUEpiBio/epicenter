@@ -13,5 +13,7 @@ RUN apt-get install -y --no-install-recommends libglpk-dev
 # Additional R packages
 RUN install2.r netplot ggplot2 gridExtra texreg
 
+RUN quarto install tinytex
+
 
 CMD ["bash"]
