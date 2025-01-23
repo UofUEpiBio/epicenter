@@ -48,5 +48,15 @@ singularity:
 		--workdir /epicenter \
 		quay.io/singularity/singularity:v4.1.0 build epicenter.sif docker://quay.io/gvegayon/epicenter:latest
 
+singularity_run:
+	$(ENGINE) run $(PLATFORM) -it --rm \
+		--mount type=bind,source=$(PWD),target=/epicenter \
+		--workdir /epicenter \
+		quay.io/singularity/singularity:v4.1.0 exec epicenter.sif bash
+
 singularity_pull:
 	$(ENGINE) pull $(PLATFORM) quay.io/singularity/singularity:v4.1.0
+
+singularity_render_chpc:
+	singularity exec --bind=$(PWD):/epicenter --pwd=epicenter \
+		epicenter.sif make render

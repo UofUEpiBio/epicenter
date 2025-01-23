@@ -388,7 +388,7 @@ res9_new <- ergm(
 #| message: false
 #| warning: false
 #| results: hide
-default_control.1$main.method <- "MCMLE"
+# default_control.1$main.method <- "MCMLE"
 
 res12_92 <- ergm(
   Networks(networks1) ~
