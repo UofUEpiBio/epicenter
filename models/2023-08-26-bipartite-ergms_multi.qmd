@@ -1,14 +1,14 @@
 ---
 title: "Bipartite networks of health care workers and residents in long-term care facilities"
-format:
-  pdf:
-    extra_dependencies:
-      - pdflscape
-      - rotating
-      - tabularx
-      - booktabs
-      - geometry
-      - graphicx
+format: html
+  # pdf:
+  #   extra_dependencies:
+  #     - pdflscape
+  #     - rotating
+  #     - tabularx
+  #     - booktabs
+  #     - geometry
+  #     - graphicx
 editor_options: 
   markdown: 
     wrap: 80
@@ -388,28 +388,33 @@ res9_new <- ergm(
 #| message: false
 #| warning: false
 #| results: hide
-# default_control.1$main.method <- "MCMLE"
+default_control.1$main.method <- "MCMLE"
 
-res12_92 <- ergm(
-  Networks(networks1) ~
-    N(~edges, ~log(n))+
-    N(~gwb1dsp(0.75, fixed=TRUE))+
-    N(~b2starmix(2, 'Nurse'), subset=Nurse)+ # has to be numeric
-    #N(~b2factor('dialysis'), subset=dialysis)+
-    N(~b2factor('wound_care'), subset=wound_care)+
-    N(~b2factor('bedridden'), subset=bedridden)+
-    N(~b1starmix(2, 'wound_care', diff=TRUE), subset=wound_care)+
-    N(~b1starmix(2, 'ventilator', diff=TRUE), subset=ventilator2)+
-    N(~b1starmix(2, 'diabetes', diff=TRUE), subset=diabetes2)+
-    N(~b2starmix(2, 'PTOTRT'), subset=PTOTRT)+ # has to be numeric
-    offset(b1degree(0))+offset(b2degree(0)),
-  offset.coef = c(-Inf, -Inf),
-  control = do.call("control.ergm", default_control.1))
+timer_res12_92 <- system.time({
+  res12_92 <- ergm(
+    Networks(networks1) ~
+      N(~edges, ~log(n))+
+      N(~gwb1dsp(0.75, fixed=TRUE))+
+      N(~b2starmix(2, 'Nurse'), subset=Nurse)+ # has to be numeric
+      #N(~b2factor('dialysis'), subset=dialysis)+
+      N(~b2factor('wound_care'), subset=wound_care)+
+      N(~b2factor('bedridden'), subset=bedridden)+
+      N(~b1starmix(2, 'wound_care', diff=TRUE), subset=wound_care)+
+      N(~b1starmix(2, 'ventilator', diff=TRUE), subset=ventilator2)+
+      N(~b1starmix(2, 'diabetes', diff=TRUE), subset=diabetes2)+
+      N(~b2starmix(2, 'PTOTRT'), subset=PTOTRT)+ # has to be numeric
+      offset(b1degree(0))+offset(b2degree(0)),
+    offset.coef = c(-Inf, -Inf),
+    control = do.call("control.ergm", default_control.1))
+})
+
+# Printing time
+timer_res12_92
 
 save(
   list = c(
     "res12_92", "Nurse", "wound_care", "bedridden", "ventilator2",
-    "diabetes2", "PTOTRT"
+    "diabetes2", "PTOTRT", "timer_res12_92"
     ),
   file='../data/res12_92.rda')
 ```
@@ -486,10 +491,13 @@ timer_res12_93 <- system.time({
   )
 })
 
+# Printing time
+timer_res12_93
+
 save(
   list = c(
     "res12_93", "Nurse", "wound_care", "bedridden", "ventilator2",
-    "diabetes2", "PTOTRT"
+    "diabetes2", "PTOTRT", "timer_res12_93"
     ),
   file='../data/res12_93.rda'
   )
