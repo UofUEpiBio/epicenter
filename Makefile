@@ -60,3 +60,4 @@ singularity_pull:
 singularity_render_chpc:
 	singularity exec --bind=$(PWD):/epicenter --pwd=epicenter \
 		epicenter.sif make render
+
