@@ -388,6 +388,8 @@ res9_new <- ergm(
 #| message: false
 #| warning: false
 #| results: hide
+default_control.1$main.method <- "MCMLE"
+
 res12_92 <- ergm(
   Networks(networks1) ~
     N(~edges, ~log(n))+
@@ -433,10 +435,10 @@ dim(dd)
 setDT(dd)
 dd$NetID=as.numeric(dd$NetID)
 
-Nurse=dd[, n:=sum(Nurse==1), NetID][n>1, unique(NetID)] |> as.numeric() # requiring at least 2 nurses in a network 
-CNA=dd[, n:=sum(CNA==1), NetID][n>1, unique(NetID)] |> as.numeric()
-PTOTRT=dd[, n:=sum(PTOTRT==1), NetID][n>1, unique(NetID)] |> as.numeric()
-Other=dd[, n:=sum(Other==1), NetID][n>1, unique(NetID)] 
+Nurse  = dd[, n:=sum(Nurse==1), NetID][n>1, unique(NetID)] |> as.numeric() # requiring at least 2 nurses in a network 
+CNA    = dd[, n:=sum(CNA==1), NetID][n>1, unique(NetID)] |> as.numeric()
+PTOTRT = dd[, n:=sum(PTOTRT==1), NetID][n>1, unique(NetID)] |> as.numeric()
+Other  = dd[, n:=sum(Other==1), NetID][n>1, unique(NetID)] 
 nuni(c(Other, PTOTRT)) # 46
 
 wh=intersect(Nurse, PTOTRT)

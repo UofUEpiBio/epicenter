@@ -30,8 +30,20 @@ container_run:
 		--mount type=bind,source=$(PWD),target=/epicenter \
 		--workdir /epicenter epicenter
 
+container_push:
+	$(ENGINE) push $(PLATFORM) epicenter quay.io/gvegayon/epicenter:latest
+
 mac_container_build:
 	MAC=1 $(MAKE) container_build
 
 mac_container_run:
 	MAC=1 $(MAKE) container_run
+
+singularity:
+	$(ENGINE) run $(PLATFORM) -it --rm \
+		--mount type=bind,source=$(PWD),target=/epicenter \
+		--workdir /epicenter \
+		quay.io/singularity/singularity:v4.1.0 build epicenter.sif docker://docker.io/rocker/r-ver:4.4.0
+
+singularity_pull:
+	$(ENGINE) pull $(PLATFORM) quay.io/singularity/singularity:v4.1.0
