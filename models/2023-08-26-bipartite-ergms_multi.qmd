@@ -17,6 +17,7 @@ author:
   - Chong Zhang
   - George G. Vega Yon
 date-modified: 2025-01-03
+embed-resources: true
 ---
 
 8/28/2023
@@ -503,6 +504,50 @@ save(
   )
 ```
 
+```{r}
+#| label: res12_93_no_start
+#| echo: false
+#| cache: true
+#| eval: true
+#| message: false
+#| warning: false
+#| results: hide
+timer_res12_93_no_start <- system.time({
+  res12_93_no_start <- ergm(
+    Networks(networks) ~
+      N(~edges, ~log(n))+
+      N(~gwb1dsp(0.75, fixed=TRUE))+
+      N(~b2starmix(2, 'Nurse'), subset=Nurse)+ # has to be numeric
+      #N(~b2factor('dialysis'), subset=dialysis)+
+      N(~b2factor('wound_care'), subset=wound_care)+
+      N(~b2factor('bedridden'), subset=bedridden)+
+      N(~b1starmix(2, 'wound_care', diff=TRUE), subset=wound_care)+
+      N(~b1starmix(2, 'ventilator', diff=TRUE), subset=ventilator2)+
+      N(~b1starmix(2, 'diabetes', diff=TRUE), subset=diabetes2)+
+      N(~b2starmix(2, 'PTOTRT'), subset=PTOTRT)+ # has to be numeric
+      offset(b1degree(0))+offset(b2degree(0)),
+    offset.coef = c(-Inf, -Inf),
+    control = do.call(
+      "control.ergm",
+      default_control.1
+      )
+  )
+})
+
+# Printing time
+timer_res12_93_no_start
+
+save(
+  list = c(
+    "res12_93_no_start", "Nurse", "wound_care", "bedridden", "ventilator2",
+    "diabetes2", "PTOTRT", "timer_res12_93_no_start"
+    ),
+  file='../data/res12_93_no_start.rda'
+  )
+
+summary(res12_93_no_start)
+```
+
 Printing the ERGM results
 
 ```{r}
@@ -513,40 +558,7 @@ summary(res12_93)
 timer_res12_93
 ```
 
-Now we add network 57 back, and fit model 10 and model 12 (considered the best models so far) on all 93 networks.
-We must re-calculate the indices of networks on which each term will be evaluated. The following code does this.
 
-```{r}
-load('../data/dd_nodal_attr.RData')
-setDT(dd)
-dd$NetID=as.numeric(dd$NetID)
-
-Nurse=dd[, n:=sum(Nurse==1), NetID][n>1, unique(NetID)] |> as.numeric() 
-CNA=dd[, n:=sum(CNA==1), NetID][n>1, unique(NetID)] |> as.numeric()
-PTOTRT=dd[, n:=sum(PTOTRT==1), NetID][n>1, unique(NetID)] |> as.numeric()
-Other=dd[, n:=sum(Other==1), NetID][n>1, unique(NetID)] 
-nuni(c(Other, PTOTRT)) # 46
-
-wh=intersect(Nurse, PTOTRT)
-dcheck=dd[NetID %in% wh & group=='hcw', .(NetID, Nurse, PTOTRT, Other, CNA)]
-dcheck[, count:=sum(CNA=="1")+sum(Other=="1"), NetID]
-PTOTRT.nurse=as.numeric(dcheck[count>1, unique(NetID)])
-length(PTOTRT.nurse) 
-
-dialysis=dd[, n:=sum(dialysis=='Yes'), NetID][n>0, unique(NetID)]
-wound_care=dd[, n:=sum(wound_care=='Yes'), NetID][n>0, unique(NetID)] 
-mdro=dd[, n:=sum(mdro=='Yes'), NetID][n>0, unique(NetID)] 
-bedridden=dd[, n:=sum(bedridden=='Yes'), NetID][n>0, unique(NetID)] 
-bedridden
-
-dialysis2=dd[, n:=sum(dialysis=='Yes'), NetID][n>1, unique(NetID)]
-diabetes2=dd[, n:=sum(diabetes=='Yes'), NetID][n>1, unique(NetID)]
-wound_care2=dd[, n:=sum(wound_care=='Yes'), NetID][n>1, unique(NetID)] 
-ventilator2=dd[, n:=sum(ventilator=='Yes'), NetID][n>1, unique(NetID)] 
-mdro2=dd[, n:=sum(mdro=='Yes'), NetID][n>1, unique(NetID)] 
-wheelchair2=dd[, n:=sum(wheelchair=='Yes'), NetID][n>1, unique(NetID)] 
-wheelchair2
-```
 
 
 ```{r}
@@ -555,7 +567,8 @@ wheelchair2
 texreg::texreg(
   list(
     'Model 12 on 92 networks'=res12_92,
-    'Model 12 on 93 networks'=res12_93
+    'Model 12 on 93 networks'=res12_93,
+    'Model 12 on 93 networks (no start)'=res12_93_no_start
     ),
   single.row = TRUE,
   scalebox = .8,
