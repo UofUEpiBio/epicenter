@@ -550,11 +550,12 @@ timer_res12_93
 ```{r}
 #| eval: true
 #| results: asis
-texreg::texreg(
+#| echo: true
+texreg::htmlreg(
   list(
     'Model 12 on 92 networks'=res12_92,
-    'Model 12 on 93 networks'=res12_93,
-    'Model 12 on 93 networks (no start)'=res12_93_no_start
+    'Model 12 on 93 networks'=res12_93 #,
+    # 'Model 12 on 93 networks (no start)'=res12_93_no_start
     ),
   single.row = TRUE,
   scalebox = .8,
