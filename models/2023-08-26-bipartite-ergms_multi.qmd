@@ -27,10 +27,15 @@ embed-resources: true
 #| include: false
 knitr::opts_chunk$set(echo = TRUE, message = FALSE)
 # a few personal functions to make things easy
-naton=function(x){y=x;y[is.na(x)]=0; return(y)} # convert NA to 0
-nuni=function(x){length(unique(x))} # count unique values
-findmiss=function(dat){M=apply(dat,2,function(x){sum(is.na(x))}); M[M>0]} # count missings in all columns
-#setwd("C:/Users/u0942431/Box/Epicenter LTCF Data Analysis/Chong/Analysis_New")
+
+# convert NA to 0
+naton <- function(x){y=x;y[is.na(x)]=0; return(y)} 
+
+# count unique values
+nuni <- function(x){length(unique(x))}
+
+# count missings in all columns
+findmiss <- function(dat){M=apply(dat,2,function(x){sum(is.na(x))}); M[M>0]}
 ```
 
 ## Overview
@@ -239,13 +244,6 @@ res2.cnew <- ergm(
 ```
 
 ```{r}
-#| label: old-loads0
-#| eval: false
-#| echo: false
-load('res2_cnew.RData')
-```
-
-```{r}
 #| label: print-models
 texreg::knitreg(
   list(
@@ -282,18 +280,6 @@ res5new <- ergm(
   offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
   control = do.call("control.ergm", default_control.1))
-```
-
-```{r}
-#| eval: false
-#| echo: false
-#| label: old-loads
-load('res5_b2factor_Nurse_new.RData')
-load('res6_new.RData')
-load('res7_new.RData')
-load('res8_new.RData')
-load('res9_new.RData')
-load('res10_new.RData')
 ```
 
 Keep adding more terms
@@ -508,7 +494,7 @@ save(
 #| label: res12_93_no_start
 #| echo: false
 #| cache: true
-#| eval: true
+#| eval: false
 #| message: false
 #| warning: false
 #| results: hide
