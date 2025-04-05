@@ -17,6 +17,7 @@ help:
 	@echo "  container_push      : Push the container image to quay.io"
 	@echo "  singularity         : Build the singularity image"
 	@echo "  singularity_pull    : Pull the singularity image needed to build the singularity file."
+	@echo "  singularity_run     : Run the singularity image"
 	@echo ""
 	@echo "Variables:"
 	@echo "  ENGINE : Container engine to use (default: podman)"
@@ -49,10 +50,9 @@ singularity:
 		quay.io/singularity/singularity:v4.1.0 build epicenter.sif docker://quay.io/gvegayon/epicenter:latest
 
 singularity_run:
-	$(ENGINE) run $(PLATFORM) -it --rm \
-		--mount type=bind,source=$(PWD),target=/epicenter \
-		--workdir /epicenter \
-		quay.io/singularity/singularity:v4.1.0 exec epicenter.sif bash
+	singularity exec --bind=$(PWD):/epicenter \
+		--pwd /epicenter \
+		epicenter.sif bash
 
 singularity_pull:
 	$(ENGINE) pull $(PLATFORM) quay.io/singularity/singularity:v4.1.0

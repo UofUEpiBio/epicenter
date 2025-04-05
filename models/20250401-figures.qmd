@@ -1,0 +1,240 @@
+---
+format: html
+---
+
+```{r}
+library(ergm.multi)
+library(texreg)
+library(ergmito)
+library(ggplot2)
+library(ggrepel)
+```
+
+## Loading the GOF
+
+```{r}
+#| label: load-and-plot-gofN
+gof12_93 <- readRDS("../data/gofN_model12_93.rds")
+
+if (interactive())
+  pdf("gof12_93.pdf")
+
+op <- par(
+  mfrow = c(4, 2),
+  # Putting the x-labels inside of the plots
+  oma = c(0, 0, 0, 0),
+  mar = c(4, 4, 2, 1),
+  # Reducing the size of the title
+  cex.main = 0.8
+  )
+# figs <- autoplot(gof12_93, main = "{name} - {type}", id.n = 5)
+plot(
+  gof12_93[1:15], main = "{name}\n{type}", id.n = 5, , which = 1,
+  xlab = ""
+  )
+par(op)
+
+if (interactive())
+  dev.off()
+
+```
+
+
+Could have we done better?
+
+```{r}
+#| label: gof-obs-vs-fitted
+vars <- names(gof12_93)
+
+if (interactive())
+  pdf("gof12_93-obs-vs-fitted.pdf")
+op <- par(mfrow = c(3, 3), mar = c(4, 4, 2, 1))
+for (v in vars) {
+  tmp_var <- gof12_93[[v]]
+
+  tryCatch(with(tmp_var, {
+    plot(observed, fitted, main = v, xlab = "Observed", ylab = "Fitted")
+    abline(a = 0, b=1, col = "red")
+  }), error = function(e) {
+    message("Error in variable:", v, "\n")
+  })
+}
+par(op)
+
+if (interactive())
+  dev.off()
+```
+
+
+## Loading the fit
+
+
+```{r}
+#| label: load-packages-and-data
+load("../data/res12_93.rda")
+load('../data/network93_f2.RData')
+load('../data/dd_nodal_attr.RData')
+```
+
+```{r}
+#| label: mcmc-diagnostics
+pdf("mcmc_diag_12_93.pdf")
+mcmc.diagnostics(res12_93, which = "plots")
+dev.off()
+```
+
+Another view to the errors
+
+```{r}
+#| label: regress-networks
+# Retrieving the errors
+errs <- lapply(gof12_93, "[[", "pearson")
+
+# Most commonly misfitted networks looking at the MSE
+library(data.table)
+errs <- data.table(
+  network = as.character(1:length(errs[[1]])),
+  mse = do.call(cbind, errs) |>
+    apply(1, \(x) mean(abs(x), na.rm = TRUE))
+)
+
+setorder(errs, mse)
+errs[, network := factor(network, levels = network)]
+
+# Plotting
+pdf("errs.pdf")
+ggplot(tail(errs, 20), aes(x = network, y = mse)) +
+  geom_point() +
+  geom_line() +
+  labs(
+    x = "Network",
+    y = "Mean Squared Error",
+    title = "Mean Squared Error of the Networks",
+    subtitle = "(top 20)"
+  ) +
+  theme_minimal()
+dev.off()
+```
+
+```{r}
+#| label: simulate-networks
+sims <- simulate(res12_93, nsim = 1, seed = 1234) |>
+  splitnetwork(".NetworkID")
+
+# Original networks
+networks_0 <- res12_93$network |>
+  splitnetwork(".NetworkID")
+```
+
+```{r}
+#| label: plot-simulated-networks
+library(netplot)
+library(gridExtra)
+if (interactive())
+  png("example1.png", width = 1024, height = 400)
+ans_row0 <- NULL
+ans_row1 <- NULL
+ans <- NULL
+for (i in 1:5) {
+  res0 <- nplot(sims[[i]], edge.line.breaks = 1)
+  res1 <- nplot(networks_0[[i]], edge.line.breaks = 1, layout = res0$.layout)
+  # ans_row0 <- c(ans_row0, list(res0))
+  # ans_row1 <- c(ans_row1, list(res1))
+  ans <- c(ans, list(res0, res1))
+}
+  # ans <- c(ans_row0, ans_row1)
+marrangeGrob(grobs = ans, ncol = 5, nrow = 2)
+
+if (interactive())
+  dev.off()
+```
+
+
+## Re-fitting the model excluding the worst networks
+
+```{r}
+#| label: refit-model
+#| warning: false
+#| message: false
+# To remove
+to_remove <- c(4, 54, 57)
+
+# Cleaning variables
+dd$NetID=as.numeric(dd$NetID)
+setDT(dd)
+
+for (i in rev(to_remove)) {
+  dd <- dd[NetID != i] # also remove it from the nodal attributes data frame
+  dd$NetID[dd$NetID > i] <- dd$NetID[dd$NetID > i] - 1 # re-number the networks after removing the outlier
+}
+
+# Get indices of networks on which each term will be evaluated.
+# For HCW type homophily (b2starmix(2)), the netowkrs need to have at least two HCWs of that type. 
+Nurse=dd[, n:=sum(Nurse==1), NetID][n>1, unique(NetID)] |> as.numeric() 
+CNA=dd[, n:=sum(CNA==1), NetID][n>1, unique(NetID)] |> as.numeric()
+PTOTRT=dd[, n:=sum(PTOTRT==1), NetID][n>1, unique(NetID)] |> as.numeric()
+Other=dd[, n:=sum(Other==1), NetID][n>1, unique(NetID)] 
+
+# For b2factor (resident type), the networks need to have at least 1 resident of that type. 
+dialysis=dd[, n:=sum(dialysis=='Yes'), NetID][n>0, unique(NetID)]
+wound_care=dd[, n:=sum(wound_care=='Yes'), NetID][n>0, unique(NetID)] 
+mdro=dd[, n:=sum(mdro=='Yes'), NetID][n>0, unique(NetID)] 
+bedridden=dd[, n:=sum(bedridden=='Yes'), NetID][n>0, unique(NetID)]  
+
+# For b1startmix(2), at least two residents of such type need to be present in the network.
+dialysis2=dd[, n:=sum(dialysis=='Yes'), NetID][n>1, unique(NetID)]
+diabetes2=dd[, n:=sum(diabetes=='Yes'), NetID][n>1, unique(NetID)]
+wound_care2=dd[, n:=sum(wound_care=='Yes'), NetID][n>1, unique(NetID)] 
+ventilator2=dd[, n:=sum(ventilator=='Yes'), NetID][n>1, unique(NetID)] 
+mdro2=dd[, n:=sum(mdro=='Yes'), NetID][n>1, unique(NetID)] 
+wheelchair2=dd[, n:=sum(wheelchair=='Yes'), NetID][n>1, unique(NetID)]  
+
+# New network
+net_90 <- networks[-to_remove]
+
+# Refitting the model
+ans_90 <- ergm(
+  Networks(net_90) ~ N(~edges, ~log(n)) +
+    N(~gwb1dsp(0.75, fixed = TRUE), ~log(n)) + 
+    N(~b2starmix(2, "Nurse"), subset = Nurse) +
+    N(~b2factor("wound_care"), subset = wound_care) +
+    N(~b2factor("bedridden"), subset = bedridden) + 
+    N(~b1starmix(2, "wound_care", diff = TRUE), subset = wound_care) + 
+    N(~b1starmix(2, "ventilator", diff = TRUE), subset = ventilator2)+ 
+    N(~b1starmix(2, "diabetes", diff = TRUE), subset = diabetes2) + 
+    N(~b2starmix(2, "PTOTRT"), subset = PTOTRT) +
+    offset(b1degree(0)) + 
+    offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = control.ergm(
+    seed = 100,
+    # init = coef(res12_93),
+    main.method = "Stochastic-Approximation",
+    SA.nsubphases  = 4 * 1, # 1 the default
+    SA.burnin      = 1024 * 80, 
+    SA.interval    = 1024 * 20, 
+    SA.samplesize  = 1024 * 80
+  )
+)
+
+gofN_90 <- gofN(ans_90)
+pdf("gof_90.pdf")
+autoplot(gofN_90)
+dev.off()
+
+# MCMC diagnostics
+pdf("mcmc_diag_90.pdf")
+mcmc.diagnostics(ans_90, which = "plots")
+dev.off()
+```
+
+Comparing the last model with the current model
+
+```{r}
+#| label: print-model
+texreg::screenreg(
+  list(Current = res12_93, Last = ans_90),
+  single.row = TRUE
+)
+```
+
