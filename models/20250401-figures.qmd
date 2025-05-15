@@ -1,8 +1,17 @@
 ---
 format: html
+title: Output reporting
+author: George G. Vega Yon, Ph.D.
+date: 2025-04-01
+date-modified: 2025-05-15
 ---
 
+This document shows the final model's goodness-of-fit [GOF] output in terms of multi-ergm modeling, as well as the MCMC GOF diagnostics.
+
+
 ```{r}
+#| warning: false
+#| message: false
 library(ergm.multi)
 library(texreg)
 library(ergmito)
@@ -11,6 +20,8 @@ library(ggrepel)
 ```
 
 ## Loading the GOF
+
+The GOF statistics were computed during the model fitting process. We just need to load them.
 
 ```{r}
 #| label: load-and-plot-gofN
@@ -40,14 +51,13 @@ if (interactive())
 ```
 
 
-Could have we done better?
+Could have we done better? We look into this from comparing the observed vs predicted values (the previous focused on the error terms):
 
 ```{r}
 #| label: gof-obs-vs-fitted
+#| warning: false
 vars <- names(gof12_93)
 
-if (interactive())
-  pdf("gof12_93-obs-vs-fitted.pdf")
 op <- par(mfrow = c(3, 3), mar = c(4, 4, 2, 1))
 for (v in vars) {
   tmp_var <- gof12_93[[v]]
@@ -56,13 +66,12 @@ for (v in vars) {
     plot(observed, fitted, main = v, xlab = "Observed", ylab = "Fitted")
     abline(a = 0, b=1, col = "red")
   }), error = function(e) {
-    message("Error in variable:", v, "\n")
+    if (interactive())
+      message("Error in variable:", v, "\n")
   })
 }
 par(op)
 
-if (interactive())
-  dev.off()
 ```
 
 
@@ -76,11 +85,70 @@ load('../data/network93_f2.RData')
 load('../data/dd_nodal_attr.RData')
 ```
 
+## Visualizing some features of the networks
+
+```{r}
+#| label: network-feats
+# Mean degree
+network_stats <- data.frame(
+  size = sapply(networks, network.size),
+  n_hcw = sapply(networks, \(x) {
+    sum(x %v% "is_actor")
+  }),
+  n_mdro = sapply(networks, \(x) {
+    sum((x %v% "mdro") == "Yes")
+  }),
+  n_dialysis = sapply(networks, \(x) {
+    sum((x %v% "dialysis") == "Yes")
+  }),
+  n_wound_care = sapply(networks, \(x) {
+    sum((x %v% "wound_care") == "Yes")
+  }),
+  n_ventilator = sapply(networks, \(x) {
+    sum((x %v% "ventilator") == "Yes")
+  }),
+  n_bedridden = sapply(networks, \(x) {
+    sum((x %v% "bedridden") == "Yes")
+  }),
+  # Now, tabulating the network composition
+  n_nurses = sapply(networks, \(x) {
+    sum((x %v% "Nurse") == 1)
+  }),
+  n_PTOTRT = sapply(networks, \(x) {
+    sum((x %v% "PTOTRT") == 1)
+  })
+)
+
+# Size distribution
+ggplot(network_stats, aes(x = size)) +
+  geom_histogram() +
+  labs(
+    x = "Network Size",
+    y = "Count",
+    title = "Network Size Distribution"
+  ) +
+  theme_minimal()
+
+# Size vs number of HCWs
+ggplot(network_stats, aes(x = size, y = n_hcw)) +
+  geom_point() +
+  # geom_smooth(method = "lm") +
+  labs(
+    x = "Network Size",
+    y = "Number of HCWs",
+    title = "Network Size vs Number of HCWs"
+  ) +
+  theme_minimal()
+
+```
+
+## MCMC diagnostics
 ```{r}
 #| label: mcmc-diagnostics
-pdf("mcmc_diag_12_93.pdf")
+#| fig-height: 10 
+op <- par(mfrow = c(3, 2))
 mcmc.diagnostics(res12_93, which = "plots")
-dev.off()
+par(op)
 ```
 
 Another view to the errors
@@ -118,6 +186,7 @@ dev.off()
 
 ```{r}
 #| label: simulate-networks
+#| cache: true
 sims <- simulate(res12_93, nsim = 1, seed = 1234) |>
   splitnetwork(".NetworkID")
 
@@ -156,6 +225,7 @@ if (interactive())
 #| label: refit-model
 #| warning: false
 #| message: false
+#| eval: false
 # To remove
 to_remove <- c(4, 54, 57)
 
@@ -232,6 +302,7 @@ Comparing the last model with the current model
 
 ```{r}
 #| label: print-model
+#| eval: false
 texreg::screenreg(
   list(Current = res12_93, Last = ans_90),
   single.row = TRUE
