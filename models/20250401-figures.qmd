@@ -24,30 +24,33 @@ library(xtable)
 ## Summary stats
 
 ```{r}
+#| label: load-packages-and-data
 # Loading data from the models
 load("../data/res12_93.rda")
+load('../data/network93_f2.RData')
+load('../data/dd_nodal_attr.RData')
+setDT(dd)
+dd$NetID=as.numeric(dd$NetID)
+
+# Summary about MDROs
+mdro <- dd[, n := sum(mdro == 'Yes'), NetID][n>0, unique(NetID)] 
 
 counts <- summary_formula(
   res12_93$network ~
-    edges + 
-    N(~edges, ~log(n)) +
-    b1dsp(1:2) +
-    b1starmix(2, "wound_care", diff = FALSE) +
-    b1starmix(2, "dialysis", diff = FALSE) +
-    b1starmix(2, "wheelchair", diff = FALSE) +
-    b1starmix(2, "bedridden", diff = FALSE) +
-    b1starmix(2, "ventilator", diff = FALSE) +
-    b1starmix(2, "mdro", diff = FALSE) +
-    b2cov("sqrt_age") +
-    b2star(2) +
-    b2starmix(2, "CNA", diff = FALSE) +
-    b2starmix(2, "Nurse", diff = FALSE) +
-    b2starmix(2, "Other", diff = FALSE) +
-    b2starmix(2, "PTOTRT", diff = FALSE) 
+    N(~edges, ~log(n))+
+    N(~gwb1dsp(0.75, fixed=TRUE))+
+    N(~b2starmix(2, 'Nurse'), subset=Nurse)+
+    N(~b2factor('wound_care'), subset=wound_care)+
+    N(~b2factor('bedridden'), subset=bedridden)+
+    N(~b1starmix(2, 'wound_care', diff=TRUE), subset = wound_care) +
+    N(~b1starmix(2, 'ventilator', diff=TRUE), subset = ventilator2) +
+    N(~b1starmix(2, 'diabetes', diff=TRUE), subset=diabetes2) +
+    N(~b2starmix(2, 'PTOTRT'), subset=PTOTRT) +
+    N(~b2starmix(2, 'mdro', diff = TRUE), subset=mdro)
   )
 
-n <- uncombine_network(res12_93$network) |>
-  length()
+n <- 93 #uncombine_network(res12_93$network) |>
+  #length()
 
 mytab <- data.table(
   Statistic = names(counts),
@@ -58,7 +61,8 @@ mytab <- data.table(
 mytab[, Statistic := gsub("b.starmix.{3}", "", Statistic)]
 knitr::kable(
   mytab,
-  caption = "Summary statistics of the model"
+  caption = "Summary statistics of the model",
+  digits = 2
 )
 ```
 
@@ -100,14 +104,13 @@ res12_92 <- ergm(
 Networks(networks1) ~
   N(~edges, ~log(n))+
   N(~gwb1dsp(0.75, fixed=TRUE))+
-  N(~b2starmix(2, 'Nurse'), subset=Nurse)+ # has to be numeric
-  #N(~b2factor('dialysis'), subset=dialysis)+
+  N(~b2starmix(2, 'Nurse'), subset=Nurse)+
   N(~b2factor('wound_care'), subset=wound_care)+
   N(~b2factor('bedridden'), subset=bedridden)+
   N(~b1starmix(2, 'wound_care', diff=TRUE), subset=wound_care)+
   N(~b1starmix(2, 'ventilator', diff=TRUE), subset=ventilator2)+
   N(~b1starmix(2, 'diabetes', diff=TRUE), subset=diabetes2)+
-  N(~b2starmix(2, 'PTOTRT'), subset=PTOTRT)+ # has to be numeric
+  N(~b2starmix(2, 'PTOTRT'), subset=PTOTRT)+
   offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf)
 )
@@ -117,14 +120,13 @@ res12_93 <- ergm(
   Networks(networks) ~
     N(~edges, ~log(n))+
     N(~gwb1dsp(0.75, fixed=TRUE))+
-    N(~b2starmix(2, 'Nurse'), subset=Nurse)+ # has to be numeric
-    #N(~b2factor('dialysis'), subset=dialysis)+
+    N(~b2starmix(2, 'Nurse'), subset=Nurse)+
     N(~b2factor('wound_care'), subset=wound_care)+
     N(~b2factor('bedridden'), subset=bedridden)+
     N(~b1starmix(2, 'wound_care', diff=TRUE), subset=wound_care)+
     N(~b1starmix(2, 'ventilator', diff=TRUE), subset=ventilator2)+
     N(~b1starmix(2, 'diabetes', diff=TRUE), subset=diabetes2)+
-    N(~b2starmix(2, 'PTOTRT'), subset=PTOTRT)+ # has to be numeric
+    N(~b2starmix(2, 'PTOTRT'), subset=PTOTRT)+ 
     offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
   control = do.call(
@@ -137,7 +139,8 @@ res12_93 <- ergm(
 ```{r}
 #| label: final-model
 texreg::screenreg(
-  res12_93
+  res12_93,
+  digits = 2
 )
 ```
 
@@ -201,10 +204,7 @@ par(op)
 
 
 ```{r}
-#| label: load-packages-and-data
-load("../data/res12_93.rda")
-load('../data/network93_f2.RData')
-load('../data/dd_nodal_attr.RData')
+
 ```
 
 ## Visualizing some features of the networks
