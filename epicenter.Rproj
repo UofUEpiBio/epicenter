@@ -1,4 +1,5 @@
 Version: 1.0
+ProjectId: c455615e-3f03-4298-80e1-a71c9695d8ad
 
 RestoreWorkspace: Default
 SaveWorkspace: Default
@@ -13,3 +14,5 @@ RnwWeave: knitr
 LaTeX: XeLaTeX
 
 AutoAppendNewline: Yes
+
+BuildType: Makefile
