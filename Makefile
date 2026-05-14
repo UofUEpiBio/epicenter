@@ -6,6 +6,8 @@ ifdef MAC
 PLATFORM = --platform linux/amd64
 endif
 
+TAG ?= latest
+
 help:
 	@echo "Usage: make [target]"
 	@echo ""
@@ -27,7 +29,7 @@ render:
 	quarto render models/2023-08-26-bipartite-ergms_multi.qmd
 
 container_build:
-	$(ENGINE) build $(PLATFORM) -t epicenter -f ContainerFile
+	$(ENGINE) build $(PLATFORM) -t epicenter -f .devcontainer/Containerfile
 
 container_run:
 	$(ENGINE) run $(PLATFORM) -it --rm \
@@ -35,7 +37,7 @@ container_run:
 		--workdir /epicenter epicenter
 
 container_push:
-	$(ENGINE) push $(PLATFORM) epicenter quay.io/gvegayon/epicenter:latest
+	$(ENGINE) push $(PLATFORM) epicenter quay.io/gvegayon/epicenter:$(TAG)
 
 mac_container_build:
 	MAC=1 $(MAKE) container_build
@@ -47,7 +49,7 @@ singularity:
 	$(ENGINE) run $(PLATFORM) -it --rm \
 		--mount type=bind,source=$(PWD),target=/epicenter \
 		--workdir /epicenter \
-		quay.io/singularity/singularity:v4.1.0 build epicenter.sif docker://quay.io/gvegayon/epicenter:latest
+		quay.io/singularity/singularity:v4.1.0 build epicenter.sif docker://quay.io/gvegayon/epicenter:$(TAG)
 
 singularity_run:
 	singularity exec --bind=$(PWD):/epicenter \

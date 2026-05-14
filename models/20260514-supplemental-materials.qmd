@@ -33,6 +33,8 @@ library(data.table)
 library(xtable)
 ```
 
+For terms wrapped in `ergm.multi::N()`, the subset argument is applied at the network level. For example, in `N(~b2starmix(2, "Nurse"), subset = Nurse)`, "Nurse" inside `b2starmix()` denotes the vertex-level HCW type indicator, whereas the object Nurse supplied to subset is a numeric vector of network IDs. This vector contains networks with at least two nurse HCWs, so the nurse-specific 2-star mixing term is evaluated only for networks in which that statistic is defined and informative. Similar network-index subsets were constructed for other attribute-specific terms.
+
 ## Summary stats
 
 The following code chunk loads the relevant model objects and nodal attribute data required for the subsequent analyses. It also prepares a summary of the presence of multidrug-resistant organisms (MDROs) across the networks, which is a key covariate in the study. The summary_formula function is then used to compute the observed values for each model term, providing a basis for later comparison with model-based expectations.

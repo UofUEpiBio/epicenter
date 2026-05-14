@@ -81,9 +81,9 @@ Load network data
 
 ```{r}
 #| label: read-clean
-load('../data/network93_f2.RData') # a list of 93 networks to fit ERGMs
-load('../data/big_net_mat_f2.RData') # a large network (all 99 networks combined) for summaries.
-load('../data/dd_nodal_attr.RData') # This is a data frame with nodal attributes for all networks
+load('data/network93_f2.RData') # a list of 93 networks to fit ERGMs
+load('data/big_net_mat_f2.RData') # a large network (all 99 networks combined) for summaries.
+load('data/dd_nodal_attr.RData') # This is a data frame with nodal attributes for all networks
 #knitr::purl("2023-08-17-bipartite-ergms_multi.Rmd", output = "rcode.R")
 ```
 
@@ -159,6 +159,13 @@ mdro2=dd[, n:=sum(mdro=='Yes'), NetID][n>1, unique(NetID)]
 wheelchair2=dd[, n:=sum(wheelchair=='Yes'), NetID][n>1, unique(NetID)]  
 ```
 
+We will also be applying scaling based on the number of actors/entities in the network. We calculate the number of each using the following code:
+
+```{r}
+n_hcp <- sapply(networks1, \(net) summary(net~b1degrange(0)))
+n_patients <- sapply(networks1, \(net) summary(net~b2degrange(0)))
+n_tot <- n_hcp + n_patients
+```
 
 Common controls for ergm models: we use Stochastic approximation since it is fast. 
 ```{r}
@@ -176,7 +183,6 @@ Model 0: edges only.
 Since we do not have isolates in our network by design, we restrict the network by adding offset terms b1degree(0) and b2degree(0) with coefficients -Inf.
 ```{r}
 #| label: model0
-#| cache: true
 #| message: false
 #| warning: false
 #| results: hide
@@ -187,18 +193,91 @@ res0 <- ergm(
   offset.coef = c(-Inf, -Inf),
   control = do.call("control.ergm", c(default_control.1))
   )
+
+# Testing using the n_tot
+res0_n_tot <- ergm(
+  Networks(networks1) ~
+  N(~edges, ~log(n_tot))+
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = do.call("control.ergm", c(default_control.1))
+  )
+
+# Using the other numbers
+res0_n_hcp <- ergm(
+  Networks(networks1) ~
+  N(~edges, ~log(n_hcp))+
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = do.call("control.ergm", c(default_control.1))
+  )
+
+res0_n_patients <- ergm(
+  Networks(networks1) ~
+  N(~edges, ~log(n_patients))+
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = do.call("control.ergm", c(default_control.1))
+  )
+
+# Wrapper function of texreg::* to remove the
+# offset terms and make the table easier to read.
+tabulator <- function(x, ..., tmethod = texreg::screenreg) {
+
+  .mapper <- function(x) {
+    if (!inherits(x, "ergm") && length(x) > 1) {
+      ans <- unique(unlist(sapply(x, .mapper)))
+      return(
+        setNames(
+          as.list(ans),
+          ans
+        )
+      )
+    }
+
+    x_coefs <- coef(x) |> names()
+    x_coefs <- x_coefs[!grepl("^offset", x_coefs)]
+    setNames(
+      as.list(x_coefs),
+      x_coefs
+    )
+  }
+
+  maps <- .mapper(x)
+
+  tmethod(
+    x,
+    custom.coef.map = maps,
+    ...
+    )
+
+}
+
+
+tabulator(
+  list(
+    `log(n)` = res0,
+    `log(n_tot)` = res0_n_tot,
+    `log(n_hcp)` = res0_n_hcp,
+    `log(n_patients)` = res0_n_patients
+  ), 
+  single.row = TRUE
+)
 ```
+
+Since the log(n) scaling tries to adjust for invariance of the degree in network size, the right approach in this application is to use log(n hcp) since the degree of patients more invariant than that of HCP. As the number of patients increases, the degree of HCPs increases, but the degree of patients does not necessarily increase as much. Therefore, we will be using log(n_hcp) for the rest of the models.
 
 Add b2 2-star (second level 2-stars) term:
 ```{r}
 #| label: model1
-#| cache: true
 #| message: false
 #| warning: false
 #| results: hide
+res0 <- res0_n_hcp
+
 res1 <- ergm(
   Networks(networks1) ~
-  N(~edges, ~log(n))+
+  N(~edges, ~log(n_hcp))+
   N(~b2star(2))+
   +offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
@@ -210,13 +289,12 @@ Try replacing the b2start(2) with b2concurrent (which counts the number of resid
 
 ```{r}
 #| label: model1v2
-#| cache: true
 #| message: false
 #| warning: false
 #| results: hide
 res1v2 <- ergm(
   Networks(networks1) ~
-  N(~edges, ~log(n))+
+  N(~edges, ~log(n_hcp))+
   N(~b2concurrent)+
   +offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
@@ -236,7 +314,7 @@ Now try gwb1dsp - (b2star2, b2concurrent, and gwb1dsp are all correlated, counti
 # This takes a long time to run so we just load the saved result in the next chunk.
 res2.cnew <- ergm(
   Networks(networks1) ~
-  N(~edges, ~log(n))+
+  N(~edges, ~log(n_hcp))+
   N(~gwb1dsp(0.75, fixed=TRUE))+ # we compared decay parameter of 0.25, 0.5, 0.75, and 1. 0.75 seems to fit the best.
   +offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
@@ -245,7 +323,7 @@ res2.cnew <- ergm(
 
 ```{r}
 #| label: print-models
-texreg::knitreg(
+tabulator(
   list(
     'Model 0'=res0,
     'Model 1'=res1,
@@ -257,22 +335,67 @@ texreg::knitreg(
   )
 ```
 
-Model 2 fits the best. 
-We did also check whether there is an interaction between gwb1dsp and network size using term N(~gwb1dsp(0.75, fixed=TRUE), ~log(n)). 
-The interaction term is not significant, so we did not include it.
+Model 2 fits the best. We can now compare with using an interaction with log(n)
+
+```{r}
+#| label: model2-with-log_n
+res2.cnew_log_n_decay <- ergm(
+  Networks(networks1) ~
+  N(~edges, ~log(n_hcp)) +
+  gwb1dsp(cutoff=40) + # N(~gwb1dsp(), ~ log(n))+
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = do.call("control.ergm", default_control.1))
+
+res2.cnew_log_n <- ergm(
+  Networks(networks1) ~
+  N(~edges, ~log(n_hcp)) +
+  N(~gwb1dsp(decay = 0.60, fixed = TRUE), ~ log(n_hcp))+
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = do.call("control.ergm", default_control.1))
+
+res2.cnew_log_n_75 <- ergm(
+  Networks(networks1) ~
+  N(~edges, ~log(n_hcp)) +
+  N(~gwb1dsp(decay = 0.75, fixed = TRUE), ~ log(n_hcp))+
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = do.call("control.ergm", default_control.1))
+
+```
+
+Now we compare it with the other model
+
+```{r}
+#| label: print-model2-log_n
+tabulator(
+  list(
+    'Model 2'=res2.cnew,
+    'Model 2 with log(n) interaction and decay'=res2.cnew_log_n_decay,
+    'Model 2 with log(n) interaction'=res2.cnew_log_n,
+    'Model 2 with log(n) interaction and decay 0.75'=res2.cnew_log_n_75
+    ),
+  single.row = TRUE,
+  scalebox = .8
+  )
+```
+
+[REVIEW] Using Stewart, Schweinberger, Bojanowski, and Morris (2019) (as suggested by the reviewer), I estimated the decay parameter directly, and the used it as an input for the subsequent models. I was not able to directly estimate it with the interaction effect as ERGM failed with an error `objfun returned gradient not having all elements finite`.
+
+[REVIEW] Using log()
 
 Now add b2factor and b2starmix (just Nurse for now)
 ```{r}
 #| label: model5
-#| cache: true
 #| eval: true
 #| message: false
 #| warning: false
 #| results: hide
-res5new <- ergm(
+res5new_old <- ergm(
   Networks(networks1) ~
-  N(~edges, ~log(n))+
-  N(~gwb1dsp(0.75, fixed=TRUE))+
+  N(~edges, ~log(n_hcp))+
+  N(~gwb1dsp(0.60, fixed=TRUE))+
   N(~b2starmix(2, 'Nurse'), subset=Nurse)+ # has to be numeric
     N(~b2factor('dialysis'), subset=dialysis)+
     N(~b2factor('wound_care'), subset=wound_care)+
@@ -280,18 +403,40 @@ res5new <- ergm(
   offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
   control = do.call("control.ergm", default_control.1))
+
+# [REVIEW]
+res5new <- ergm(
+  Networks(networks1) ~
+  N(~edges, ~log(n_hcp))+
+  N(~gwb1dsp(0.60, fixed=TRUE), ~ log(n_hcp))+
+  N(~b2starmix(2, 'Nurse'), subset=Nurse)+ # has to be numeric
+    N(~b2factor('dialysis'), subset=dialysis)+
+    N(~b2factor('wound_care'), subset=wound_care)+
+    N(~b2factor('bedridden'), subset=bedridden)+
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = do.call("control.ergm", default_control.1))
+
+tabulator(
+  list(
+    'Old (.75 decay)'=res5new_old,
+    'New (.66 decay + log(n))'=res5new
+  ),
+  single.row = TRUE
+)
 ```
+
+[REVIEW] The model with the decay parameter of .66 keeps overperforming the one with 0.75, even after adding more terms. **The term b2factor.dialysis.Yes is no longer significant in this model**.
 
 Keep adding more terms
 
 ```{r}
 #| label: model6
-#| cache: true
 #| eval: true
 #| message: false
 #| warning: false
 #| results: hide
-res6_new <- ergm(
+res6_new_old <- ergm(
   Networks(networks1) ~
     N(~edges, ~log(n))+
     N(~gwb1dsp(0.75, fixed=TRUE))+
@@ -303,19 +448,52 @@ res6_new <- ergm(
     offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
   control = do.call("control.ergm", default_control.1))
+
+res6_new <- ergm(
+  Networks(networks1) ~
+    N(~edges, ~log(n_hcp))+
+    N(~gwb1dsp(0.60, fixed=TRUE), ~ log(n_hcp))+
+    N(~b2starmix(2, 'Nurse'), subset=Nurse)+ # has to be numeric
+    N(~b2factor('wound_care'), subset=wound_care)+
+    N(~b2factor('bedridden'), subset=bedridden)+
+    N(~b1starmix(2, 'wound_care', diff=TRUE), ~ log(n_hcp), subset=wound_care2)+
+    offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = do.call("control.ergm", default_control.1))
+
+res6_new_all_scaled <- ergm(
+  Networks(networks1) ~
+    N(~edges, ~log(n_hcp))+
+    N(~gwb1dsp(0.60, fixed=TRUE), ~ log(n_hcp))+
+    N(~b2starmix(2, 'Nurse'), ~ log(n_hcp), subset=Nurse)+ # has to be numeric
+    N(~b2factor('wound_care'), subset=wound_care)+
+    N(~b2factor('bedridden'), subset=bedridden)+
+    N(~b1starmix(2, 'wound_care', diff=TRUE), ~ log(n_hcp), subset=wound_care2)+
+    offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = do.call("control.ergm", default_control.1))
+
+tabulator(
+  list(
+    'Current' = res5new,
+    'Old (.75 decay)'=res6_new_old,
+    'New (.66 decay + log(n))'=res6_new,
+    'New all scaled'=res6_new_all_scaled
+  ),
+  single.row = TRUE
+)
 ```
 
 ```{r}
 #| label: model8new
-#| cache: true
 #| eval: true
 #| message: false
 #| warning: false
 #| results: hide
-res8_new <- ergm(
+res8_new_old <- ergm(
   Networks(networks1) ~
     N(~edges, ~log(n))+
-    N(~gwb1dsp(0.75, fixed=TRUE))+
+    N(~gwb1dsp(0.66, fixed=TRUE))+
     N(~b2starmix(2, 'Nurse'), subset=Nurse)+ # has to be numeric
     N(~b2factor('dialysis'), subset=dialysis)+
     N(~b2factor('wound_care'), subset=wound_care)+
@@ -326,6 +504,29 @@ res8_new <- ergm(
     offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
   control = do.call("control.ergm", default_control.1))
+
+res8_new <- ergm(
+  Networks(networks1) ~
+    N(~edges, ~log(n))+
+    N(~gwb1dsp(0.66, fixed=TRUE), ~ log(n))+
+    N(~b2starmix(2, 'Nurse'), subset=Nurse)+ # has to be numeric
+    N(~b2factor('dialysis'), subset=dialysis)+
+    N(~b2factor('wound_care'), subset=wound_care)+
+    N(~b2factor('bedridden'), subset=bedridden)+
+    N(~b1starmix(2, 'ventilator', diff=TRUE), ~ log(n), subset=ventilator2)+
+    N(~b1starmix(2, 'diabetes', diff=TRUE), ~ log(n), subset=diabetes2)+
+    offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = do.call("control.ergm", default_control.1))
+
+texreg::screenreg(
+  list(
+    'Current' = res5new,
+    'Old (.75 decay)'=res8_new_old,
+    'New (.66 decay + log(n))'=res8_new
+  ),
+  single.row = TRUE
+)
 ```
 
 
@@ -403,7 +604,7 @@ save(
     "res12_92", "Nurse", "wound_care", "bedridden", "ventilator2",
     "diabetes2", "PTOTRT", "timer_res12_92"
     ),
-  file='../data/res12_92.rda')
+  file='data/res12_92.rda')
 ```
 
 Priting the summary
@@ -422,7 +623,7 @@ summary(res12_92)
 #| warning: false
 #| results: hide
 # Resetting, keeping only the seed
-load('../data/dd_nodal_attr.RData')
+load('data/dd_nodal_attr.RData')
 dim(dd)
 setDT(dd)
 dd$NetID=as.numeric(dd$NetID)
@@ -486,7 +687,7 @@ save(
     "res12_93", "Nurse", "wound_care", "bedridden", "ventilator2",
     "diabetes2", "PTOTRT", "timer_res12_93"
     ),
-  file='../data/res12_93.rda'
+  file='data/res12_93.rda'
   )
 ```
 
@@ -528,7 +729,7 @@ save(
     "res12_93_no_start", "Nurse", "wound_care", "bedridden", "ventilator2",
     "diabetes2", "PTOTRT", "timer_res12_93_no_start"
     ),
-  file='../data/res12_93_no_start.rda'
+  file='data/res12_93_no_start.rda'
   )
 
 summary(res12_93_no_start)
@@ -573,6 +774,6 @@ Evaluate goodness of fit.
 #| warning: false
 g=gofN(res12_93) # saved as gofN_model12_93
 summary(g)
-saveRDS(g, '../data/gofN_model12_93.rds')
+saveRDS(g, 'data/gofN_model12_93.rds')
 ```
 
