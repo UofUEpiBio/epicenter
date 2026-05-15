@@ -130,10 +130,10 @@ In this section, we load the pre-computed goodness-of-fit (GOF) statistics for t
 ```{r}
 #| label: load-and-plot-gofN
 #| fig-height: 6
-gof12_93 <- readRDS("../data/gofN_model12_93.rds")
+gof12_93 <- readRDS("data/gofN_model12_93.rds")
 
 if (interactive())
-  pdf("gof12_93.pdf")
+  pdf("gof12_93-new.pdf")
 
 op <- par(
   mfrow = c(4, 2),
@@ -161,8 +161,10 @@ The next section explores whether the model could be improved by comparing obser
 #| label: gof-obs-vs-fitted
 #| warning: false
 #| fig-height: 6
-vars <- names(gof12_93)
+vars <- names(gof12_93) 
 
+if (interactive())
+  pdf("gof12_93-obs-vs-fitted.pdf")
 op <- par(mfrow = c(3, 3), mar = c(4, 4, 2, 1))
 for (v in vars) {
   tmp_var <- gof12_93[[v]]
@@ -176,6 +178,8 @@ for (v in vars) {
   })
 }
 par(op)
+if (interactive())
+  dev.off()
 
 ```
 
@@ -186,36 +190,23 @@ This section provides descriptive visualizations of key network features across 
 ```{r}
 #| label: network-feats
 # Mean degree
+netsapply <- function(f) {
+  sapply(networks, \(x) {
+    f(x)
+  })
+}
 network_stats <- data.frame(
   size = sapply(networks, network.size),
-  n_hcw = sapply(networks, \(x) {
-    sum(x %v% "is_actor")
-  }),
-  n_mdro = sapply(networks, \(x) {
-    sum((x %v% "mdro") == "Yes")
-  }),
-  n_dialysis = sapply(networks, \(x) {
-    sum((x %v% "dialysis") == "Yes")
-  }),
-  n_wound_care = sapply(networks, \(x) {
-    sum((x %v% "wound_care") == "Yes")
-  }),
-  n_ventilator = sapply(networks, \(x) {
-    sum((x %v% "ventilator") == "Yes")
-  }),
-  n_bedridden = sapply(networks, \(x) {
-    sum((x %v% "bedridden") == "Yes")
-  }),
+  n_hcw = netsapply(\(x) {sum(x %v% "is_actor")}),
+  n_mdro = netsapply(\(x) {sum((x %v% "mdro") == "Yes")}),
+  n_dialysis = netsapply(\(x) {sum((x %v% "dialysis") == "Yes")}),
+  n_wound_care = netsapply(\(x) {sum((x %v% "wound_care") == "Yes")}),
+  n_ventilator = netsapply(\(x) {sum((x %v% "ventilator") == "Yes")}),
+  n_bedridden = netsapply(\(x) {sum((x %v% "bedridden") == "Yes")}),
   # Now, tabulating the network composition
-  n_nurses = sapply(networks, \(x) {
-    sum((x %v% "Nurse") == 1)
-  }),
-  n_PTOTRT = sapply(networks, \(x) {
-    sum((x %v% "PTOTRT") == 1)
-  }),
-  hcw_mean_degree = sapply(networks, \(x) {
-    mean(sna::degree(x)[x %v% "is_actor"])
-  })
+  n_nurses = netsapply(\(x) {sum((x %v% "Nurse") == 1)}),
+  n_PTOTRT = netsapply(\(x) {sum((x %v% "PTOTRT") == 1)}),
+  hcw_mean_degree = netsapply(\(x) {mean(sna::degree(x)[x %v% "is_actor"])})
 )
 
 # Size distribution
@@ -286,7 +277,9 @@ setorder(errs, mse)
 errs[, network := factor(network, levels = network)]
 
 # Plotting
-pdf("errs.pdf")
+if (interactive())
+  pdf("errs.pdf")
+
 ggplot(tail(errs, 20), aes(x = network, y = mse)) +
   geom_point() +
   geom_line() +
@@ -297,7 +290,9 @@ ggplot(tail(errs, 20), aes(x = network, y = mse)) +
     subtitle = "(top 20)"
   ) +
   theme_minimal()
-dev.off()
+
+if (interactive())
+  dev.off()
 ```
 
 ## Simulating and visualizing networks
