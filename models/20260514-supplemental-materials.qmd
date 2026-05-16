@@ -42,9 +42,9 @@ The following code chunk loads the relevant model objects and nodal attribute da
 ```{r}
 #| label: load-packages-and-data
 # Loading data from the models
-load("../data/res12_93.rda")
-load('../data/network93_f2.RData')
-load('../data/dd_nodal_attr.RData')
+load("data/res12_93.rda")
+load('data/network93_f2.RData')
+load('data/dd_nodal_attr.RData')
 setDT(dd)
 dd$NetID=as.numeric(dd$NetID)
 
@@ -109,6 +109,26 @@ lapply(ans, print,
   sanitize.text.function	= \(x) x
   ) |> invisible()
 
+```
+
+## Degree distribution across types of nodes and sizes
+
+```{r}
+#| label: degree-distribution
+degs <- lapply(networks, \(n) {
+  data.table(
+    degree = sna::degree(n),
+    is_actor = n %v% "is_actor",
+    size = network.size(n),
+    state = n %v% "state"
+  )
+}) |> rbindlist()
+
+degs[, is_actor := ifelse(is_actor, "HCP", "Patient")]
+
+degs |>
+  ggplot(aes(x = size, y=degree, color = is_actor)) +
+  geom_jitter()
 ```
 
 ## Final model
@@ -255,8 +275,12 @@ To assess the adequacy of the Markov Chain Monte Carlo (MCMC) estimation procedu
 #| label: mcmc-diagnostics
 #| fig-height: 10 
 op <- par(mfrow = c(3, 2))
+if (interactive())
+  pdf("mcmc_diagnostics.pdf", width = 8, height = 10)
 mcmc.diagnostics(res12_93, which = "plots")
 par(op)
+if (interactive())
+  dev.off()
 ```
 
 We further investigate model fit by examining the mean squared error (MSE) of the Pearson residuals for each network. This approach highlights the networks that are most poorly fitted by the model, allowing for targeted assessment of potential sources of misfit and guiding future model refinement.
