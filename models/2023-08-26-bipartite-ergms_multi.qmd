@@ -131,37 +131,102 @@ setDT(dd)
 dd=dd[NetID!=57] # also remove it from the nodal attributes data frame
 dd$NetID[dd$NetID>57]=dd$NetID[dd$NetID>57]-1 # re-number the networks after removing the outlier
 
-# Get indices of networks on which each term will be evaluated.
-# For HCW type homophily (b2starmix(2)), the netowkrs need to have at least two HCWs of that type. 
-Nurse=dd[, n:=sum(Nurse==1), NetID][n>1, unique(NetID)] |> as.numeric() 
-CNA=dd[, n:=sum(CNA==1), NetID][n>1, unique(NetID)] |> as.numeric()
-PTOTRT=dd[, n:=sum(PTOTRT==1), NetID][n>1, unique(NetID)] |> as.numeric()
-Other=dd[, n:=sum(Other==1), NetID][n>1, unique(NetID)] 
 
-# For b2factor (resident type), the networks need to have at least 1 resident of that type. 
-dialysis=dd[, n:=sum(dialysis=='Yes'), NetID][n>0, unique(NetID)]
-wound_care=dd[, n:=sum(wound_care=='Yes'), NetID][n>0, unique(NetID)] 
-mdro=dd[, n:=sum(mdro=='Yes'), NetID][n>0, unique(NetID)] 
-bedridden=dd[, n:=sum(bedridden=='Yes'), NetID][n>0, unique(NetID)]  
+#' Function to configure the ERGM model for the paper
+#' @param dat A data frame of vertex-level attributes. It should include
+#' Nurse, CNA, PTOTRT, Other, dialisis, wound_care, mdro, bedridden,
+#' ventilator, wheelchair
+#' @param nets A list of [network] objects.
+#' @param boot Logical. Whether to return a boostrap sample or not
+#' @return A list with the following three elements:
+#' - `ids`: Integer vector of the selected networks.
+#' - `nets`: A list of the selected networks.
+#' - `filters`: A list of index vectors with the needed filtering for
+#' the ERGMs
+#' - `n_hcp`: Number of healthcare providers per network.
+#' - `n_patients`: Number of patients per network.
+#' - `facility_state`: Character vector with facilities' states. 
+set_ergm <- function(
+  dat,
+  nets,
+  boot = FALSE
+  ) {
 
-# For b1startmix(2), at least two residents of such type need to be present in the network.
-dialysis2=dd[, n:=sum(dialysis=='Yes'), NetID][n>1, unique(NetID)]
-diabetes2=dd[, n:=sum(diabetes=='Yes'), NetID][n>1, unique(NetID)]
-wound_care2=dd[, n:=sum(wound_care=='Yes'), NetID][n>1, unique(NetID)] 
-ventilator2=dd[, n:=sum(ventilator=='Yes'), NetID][n>1, unique(NetID)] 
-mdro2=dd[, n:=sum(mdro=='Yes'), NetID][n>1, unique(NetID)] 
-wheelchair2=dd[, n:=sum(wheelchair=='Yes'), NetID][n>1, unique(NetID)]  
+  idx <- seq_along(nets)
+  if (boot) {
+    # Sampling the networks
+    idx <- sample(idx, replace = TRUE) |> sort()
+    nets <- nets[idx]
+
+    # Redoing indices
+    dat[, .id := 1:.N, by = "NetID"]
+
+    # Merging in
+    dat_idx <- data.table(
+      NetID = idx,
+      NetID_new = 1:length(idx)
+    )
+
+    dat_new <- merge(
+      x = dat_idx,
+      y = dat,
+      by = "NetID",
+      all.x = TRUE,
+      all.y = FALSE
+    )
+
+    setorder(dat_new, "NetID", ".id")
+
+    # Saving the new position id
+    dat_new[, NetID := NetID_new]
+    dat_new[, NetID_new := NULL]
+    dat_new[, .id = NULL]
+    
+    # Saving
+    dat <- dat_new
+  }
+
+  ans <- list()
+
+  ans$Nurse  = dat[, n:=sum(Nurse==1), NetID][n>1, unique(NetID)]
+  ans$CNA    = dat[, n:=sum(CNA==1), NetID][n>1, unique(NetID)]
+  ans$PTOTRT = dat[, n:=sum(PTOTRT==1), NetID][n>1, unique(NetID)]
+  ans$Other  = dat[, n:=sum(Other==1), NetID][n>1, unique(NetID)] 
+
+  # For b2factor (resident type), the networks need to have at least 1 resident of that type. 
+  ans$dialysis   <- dat[, n:=sum(dialysis=='Yes'), NetID][n>0, unique(NetID)]
+  ans$wound_care <- dat[, n:=sum(wound_care=='Yes'), NetID][n>0, unique(NetID)] 
+  ans$mdro       <- dat[, n:=sum(mdro=='Yes'), NetID][n>0, unique(NetID)]
+  ans$bedridden  <- dat[, n:=sum(bedridden=='Yes'), NetID][n>0, unique(NetID)]  
+
+  # For b1startmix(2), at least two residents of such type need to be present in the network.
+  ans$dialysis2   <- dat[, n:=sum(dialysis=='Yes'), NetID][n>1, unique(NetID)]
+  ans$diabetes2   <- dat[, n:=sum(diabetes=='Yes'), NetID][n>1, unique(NetID)]
+  ans$wound_care2 <- dat[, n:=sum(wound_care=='Yes'), NetID][n>1, unique(NetID)]
+  ans$ventilator2 <- dat[, n:=sum(ventilator=='Yes'), NetID][n>1, unique(NetID)]
+  ans$mdro2       <- dat[, n:=sum(mdro=='Yes'), NetID][n>1, unique(NetID)]
+  ans$wheelchair2 <- dat[, n:=sum(wheelchair=='Yes'), NetID][n>1, unique(NetID)]
+
+  n_hcp <- sapply(nets, \(net) summary(net~b1degrange(0)))
+  n_patients <- sapply(nets, \(net) summary(net ~ b2degrange(0)))
+
+  c(
+    list(ids = idx, nets = nets, filters = ans),
+    ans,
+    list(
+      n_hcp = n_hcp,
+      n_patients = n_patients,
+      n_tot = n_hcp + n_patients,
+      facility_state = sapply(nets, \(net) unique(net %v% "state"))
+    )
+  )
+
+}
+
+model_data <- set_ergm(dat = dd, nets = networks1)
 ```
 
 We will also be applying scaling based on the number of actors/entities in the network. We calculate the number of each using the following code:
-
-```{r}
-n_hcp <- sapply(networks1, \(net) summary(net~b1degrange(0)))
-n_patients <- sapply(networks1, \(net) summary(net~b2degrange(0)))
-n_tot <- n_hcp + n_patients
-
-facility_state <- sapply(networks1, \(net) unique(net %v% "state"))
-```
 
 Common controls for ergm models: we use Stochastic approximation since it is fast. 
 ```{r}
@@ -182,30 +247,21 @@ Since we do not have isolates in our network by design, we restrict the network 
 #| message: false
 #| warning: false
 #| results: hide
-res0 <- ergm(
-  Networks(networks1) ~
-  N(~edges, ~log(n))+
-  offset(b1degree(0))+offset(b2degree(0)),
-  offset.coef = c(-Inf, -Inf),
-  control = do.call("control.ergm", c(default_control.1))
-  )
-
-# Testing using the n_tot
-res0_n_tot <- ergm(
-  Networks(networks1) ~
+res0 <- with(model_data, ergm(
+  Networks(nets) ~
   N(~edges, ~log(n_tot))+
   offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
   control = do.call("control.ergm", c(default_control.1))
-  )
+  ))
 
-res0_n_tot2 <- ergm(
-  Networks(networks1) ~
+res0_n_tot2 <- with(model_data, ergm(
+  Networks(nets) ~
   N(~edges, ~log(n_tot) + I(log(n_tot)^2))+
   offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
   control = do.call("control.ergm", c(default_control.1))
-)
+))
 
 # Using the other numbers
 res0_n_hcp <- ergm(

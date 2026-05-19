@@ -29,6 +29,7 @@ library(texreg)
 library(ergmito)
 library(ggplot2)
 library(ggrepel)
+library(ggridges)
 library(data.table)
 library(xtable)
 ```
@@ -117,6 +118,7 @@ lapply(ans, print,
 #| label: degree-distribution
 degs <- lapply(networks, \(n) {
   data.table(
+    net_id = n %v% "net_id",
     degree = sna::degree(n),
     is_actor = n %v% "is_actor",
     size = network.size(n),
@@ -124,11 +126,49 @@ degs <- lapply(networks, \(n) {
   )
 }) |> rbindlist()
 
+degs[, net_id := factor(net_id, levels = unique(net_id))]
+degs[, size := factor(size, levels = sort(unique(size)))]
+
 degs[, is_actor := ifelse(is_actor, "HCP", "Patient")]
 
 degs |>
-  ggplot(aes(x = size, y=degree, color = is_actor)) +
-  geom_jitter()
+  ggplot(aes(y = size, x=degree, fill = is_actor)) +
+  geom_density_ridges() +
+  labs(
+    x = "Degree",
+    y = "Network Size",
+    fill = "Node Type",
+    title = "Degree distribution across node types and network sizes"
+  ) +
+  theme_minimal()
+```
+
+We can also take a look at the proportion of HCP relative to patients across the networks:
+
+```{r}
+#| label: hcp-patient-proportion
+proportions <- lapply(networks, \(n) {
+  n_hcp <- sum(n %v% "is_actor")
+  n_patients <- network.size(n) - n_hcp
+  
+  data.table(
+    n_hcp = n_hcp,
+    n_patients = n_patients,
+    prop = n_hcp / n_patients,
+    net_id = unique(n %v% "net_id"),
+    state = unique(n %v% "state")
+  )
+}) |> rbindlist()
+
+set.seed(331)
+ggplot(proportions, aes(x = n_patients, y = prop, color = state)) +
+  geom_jitter(aes(size = n_hcp)) +
+  labs(
+    x = "Number of Patients",
+    y = "Proportion of HCPs",
+    title = "Proportion of HCPs relative to Patients"
+  ) +
+  theme_minimal()
 ```
 
 ## Final model
