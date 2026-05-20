@@ -561,13 +561,21 @@ res4_b1starmix <- with(model_data_no_md, ergm(
     # N(~b2factor('dialysis'), subset=dialysis)+
     N(~b2factor('wound_care'), subset=wound_care)+
     N(~b2factor('bedridden'), subset=bedridden)+
+    N(~b1starmix(2, 'ventilator'), subset=ventilator2)+
+    N(~b1starmix(2, 'diabetes'), subset=diabetes2)+
   offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
-  control = control.ergm(
-    seed = 55551,
-    MCMLE.confidence = .995
-  )
+  control = default_control_mcmle
 ))
+
+tabulator(
+  list(
+    best_model,
+    res2_b2factor_terms_no_md,
+    res4_b1starmix
+  ),
+  single.row = TRUE
+)
 ```
 
 ```{r}
