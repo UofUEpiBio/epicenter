@@ -112,28 +112,103 @@ lapply(ans, print,
 
 ```
 
+## Clustering sizes (do we want to group them all?)
+
+```{r}
+#| label: cluster-sizes
+sizes <- lapply(networks, \(n) {
+  data.table(
+    net_id = n %v% "net_id",
+    size = network.size(n),
+    state = n %v% "state",
+    nties = summary(n ~ edges)
+  )
+}) |>
+  rbindlist() |>
+  unique()
+
+# sizes[, net_id := factor(net_id, levels = unique(net_id))]
+# sizes[, size := factor(size, levels = sort(unique(size)))]
+
+ggplot(sizes, aes(y = state, x = size)) +
+  geom_density_ridges(
+    jittered_points = TRUE, position = "raincloud",
+    alpha = 0.9, scale = 0.9
+  ) +
+  # Annotate the number of networks in each state
+  geom_text_repel(
+    data = sizes[, .N, by = state],
+    aes(x = 0, y = state, label = paste0("N=", N)),
+    nudge_x = -0.5, size = 3, color = "black",
+    nudge_y = 0.2
+  ) +
+  labs(
+    x = "Network Size",
+    y = "Count",
+    title = "Distribution of Network Sizes by State"
+  ) +
+  theme_minimal()
+```
+
+Maryland has only 6 networks and the sizes are highly irregular. Let's take a look at how network size compares with the network density
+
+```{r}
+ggplot(sizes, aes(x = size, y = nties)) +
+  geom_point() +
+  facet_wrap(~state, ncol = 2) +
+  geom_smooth(method = "lm") +
+  labs(
+    x = "Network Size",
+    y = "Number of Ties",
+    title = "Number of Ties vs Network Size"
+  ) +
+  theme_minimal()
+```
+
 ## Degree distribution across types of nodes and sizes
 
 ```{r}
 #| label: degree-distribution
 degs <- lapply(networks, \(n) {
+  hcw_type <- ifelse(
+    n %v% "Nurse" == 1, "Nurse",
+    ifelse(
+      n %v% "PTOTRT" == 1,
+      "PTOTRT",
+      ifelse(
+        n %v% "Other" == 1, "Other",
+        ifelse(
+          n %v% "CNA" == 1, "CNA",
+          "Unknown"
+        )
+      )
+    )
+  )
+
   data.table(
     net_id = n %v% "net_id",
     degree = sna::degree(n),
     is_actor = n %v% "is_actor",
     size = network.size(n),
-    state = n %v% "state"
+    state = n %v% "state",
+    type_hcp = hcw_type
   )
 }) |> rbindlist()
 
+degs[is_actor == FALSE, type_hcp := "Patient"]
 degs[, net_id := factor(net_id, levels = unique(net_id))]
 degs[, size := factor(size, levels = sort(unique(size)))]
+degs[, type_hcp := factor(type_hcp)]
 
 degs[, is_actor := ifelse(is_actor, "HCP", "Patient")]
 
 degs |>
   ggplot(aes(y = size, x=degree, fill = is_actor)) +
-  geom_density_ridges() +
+  geom_density_ridges(
+    jittered_points = TRUE, position = "raincloud",
+    alpha = 0.9, scale = 0.9
+  ) +
+  facet_wrap(~state, scales = "free_y", ncol = 2) +
   labs(
     x = "Degree",
     y = "Network Size",
@@ -143,33 +218,73 @@ degs |>
   theme_minimal()
 ```
 
-We can also take a look at the proportion of HCP relative to patients across the networks:
+Checking the association with degree and size through a regression model
 
 ```{r}
-#| label: hcp-patient-proportion
-proportions <- lapply(networks, \(n) {
-  n_hcp <- sum(n %v% "is_actor")
-  n_patients <- network.size(n) - n_hcp
-  
-  data.table(
-    n_hcp = n_hcp,
-    n_patients = n_patients,
-    prop = n_hcp / n_patients,
-    net_id = unique(n %v% "net_id"),
-    state = unique(n %v% "state")
-  )
-}) |> rbindlist()
+degs[, size_num := as.integer(size)]
+lm(degree ~ 
+  state +
+  size_num + I(size_num^2) + is_actor*size_num, data = degs) |>
+  summary() |>
+  texreg::screenreg(single.row = TRUE, digits = 2)
+```
 
-set.seed(331)
-ggplot(proportions, aes(x = n_patients, y = prop, color = state)) +
-  geom_jitter(aes(size = n_hcp)) +
+We can also compute the statistics
+
+```{r}
+degs[is_actor == "HCP", .(
+  mean_degree = mean(degree/size_num),
+  median_degree = median(degree/size_num),
+  sd_degree = sd(degree/size_num)
+), by = .(state)][order(mean_degree)] |>
+  knitr::kable(
+    caption = "Summary of degree distribution for HCPs across states (scaled by size)",
+    digits = 2
+  )
+```
+
+```{r}
+degs[is_actor == "HCP"] |>
+  ggplot(aes(y = type_hcp, x=degree)) +
+  geom_density_ridges(
+    jittered_points = TRUE, position = "raincloud",
+    alpha = 0.9, scale = 0.9
+  ) +
+  facet_wrap(~state, scales = "free_y", ncol = 2) +
   labs(
-    x = "Number of Patients",
-    y = "Proportion of HCPs",
-    title = "Proportion of HCPs relative to Patients"
+    x = "Degree",
+    y = "Network Size",
+    title = "Degree distribution across node types and network sizes"
   ) +
   theme_minimal()
 ```
+
+Let's now look at the concurrent distribution across sizes and states.
+
+```{r}
+dat_b2concurrent <- lapply(networks, \(n) {
+
+  data.table(
+    net_id = n %v% "net_id",
+    b2concurrent = summary(n ~ b2concurrent()),
+    size = network.size(n),
+    state = n %v% "state"
+  )
+  
+}) |>
+  rbindlist() |>
+  unique()
+
+dat_b2concurrent[, net_id := factor(net_id, levels = unique(net_id))]
+# dat_b2concurrent[, size := factor(size, levels = sort(unique(size)))]
+
+dat_b2concurrent |>
+  ggplot(aes(y = size, x=b2concurrent, color = state)) +
+  geom_jitter() +
+  geom_smooth(method = "lm")
+```
+
+There is a clear linear association with size, so this variable can be, in principle, captured without scaling by the log(n hcp).
 
 ## Final model
 
@@ -205,7 +320,7 @@ op <- par(
   )
 # figs <- autoplot(gof12_93, main = "{name} - {type}", id.n = 5)
 plot(
-  gof12_93[1:15], main = "{name}\n{type}", id.n = 5, , which = 1,
+  gof12_93, main = "{name}\n{type}", id.n = 5, , which = 1,
   xlab = ""
   )
 par(op)
