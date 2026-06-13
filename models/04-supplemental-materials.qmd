@@ -224,7 +224,7 @@ Checking the association with degree and size through a regression model
 degs[, size_num := as.integer(size)]
 lm(degree ~ 
   state +
-  size_num + I(size_num^2) + is_actor*size_num, data = degs) |>
+  size_num*state + I(size_num^2) + is_actor*size_num, data = degs) |>
   summary() |>
   texreg::screenreg(single.row = TRUE, digits = 2)
 ```

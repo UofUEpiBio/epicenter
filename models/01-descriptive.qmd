@@ -1,0 +1,118 @@
+---
+title: "Descriptive Analysis"
+format: pdf
+author: George G Vega Yon, Ph.D.
+date: 2026-06-12
+---
+
+```{r}
+source("models/helpers.R")
+load('data/network93_f2.RData')
+```
+
+## Assessing the distribution of the resident features
+
+```{r}
+features <- lapply(seq_along(networks), function(i) {
+  net <- networks[[i]]
+
+  data.table(
+    is_actor = net %v% "is_actor",
+    net_id = i,
+    diabetes = net %v% "diabetes",
+    dialysis = net %v% "dialysis",
+    wound_care = net %v% "wound_care",
+    bedridden = net %v% "bedridden",
+    ventilator = net %v% "ventilator",
+    mdro = net %v% "mdro",
+    wheelchair = net %v% "wheelchair"
+  )
+}) |> rbindlist()
+
+# Excluding healtcare providers
+features <- features[is_actor == FALSE]
+
+# Checking if individuals will have more than one condition
+features[, n_conditions := 
+  (diabetes == "Yes") +
+  (dialysis == "Yes") +
+  (wound_care == "Yes") +
+  (bedridden == "Yes") +
+  (ventilator == "Yes") +
+  (mdro == "Yes") +
+  (wheelchair == "Yes")
+  ]
+
+features[, table(n_conditions)] |>
+  knitr::kable()
+```
+
+So individuals may have up to 6 different conditions. We can also visualize this in a single figure showing the distribution of patients with each condition using ggridges.
+
+
+```{r}
+library(ggridges)
+
+features_summary <- features[,
+  .(
+    Diabetes = sum(diabetes == "Yes"),
+    Dialysis = sum(dialysis == "Yes"),
+    `Wound Care` = sum(wound_care == "Yes"),
+    Bedridden = sum(bedridden == "Yes"),
+    Ventilator = sum(ventilator == "Yes"),
+    MDRo = sum(mdro == "Yes"),
+    Wheelchair = sum(wheelchair == "Yes")
+  ),
+  by = net_id
+]
+
+# Reshaping the data to long (from wide)
+features_long <- data.table::melt(features_summary, id.vars = "net_id", measure.vars = c("Diabetes", "Dialysis", "Wound Care", "Bedridden", "Ventilator", "MDRo", "Wheelchair"), variable.name = "Condition", value.name = "Count")
+
+features_long |>
+  ggplot(aes(x = Count, y = Condition)) +
+  geom_density_ridges(
+    alpha = 0.7,
+    jittered_points = TRUE, position = "raincloud"
+    ) +
+  labs(x = "Number of Patients", y = "Network", title = "Distribution of Conditions by Network") +
+  theme_minimal()
+```
+
+Repeating the same analysis for each type of healthcare professional
+
+
+```{r}
+features <- lapply(seq_along(networks), function(i) {
+  net <- set_ergm(networks[i])$nets[[1]]
+
+  data.table(
+    is_actor = net %v% "is_actor",
+    net_id = i,
+    type = net %v% "type"
+  )
+}) |> rbindlist()
+
+# Excluding healtcare providers
+features <- features[is_actor == TRUE]
+
+features[, table(type)] |>
+  knitr::kable()
+```
+
+Same type of visual to show the distribution of each type of healthcare professional across the networks.
+
+```{r}
+features[, .(Count = .N), by = .(net_id, type)] |>
+  ggplot(aes(x = Count, y = type)) +
+  geom_density_ridges(
+    alpha = 0.7,
+    jittered_points = TRUE, position = "raincloud"
+    ) +
+  labs(
+    x = "Number of HCP",
+    y = "Type of HCP",
+    title = "Distribution of types of HCP") +
+  theme_minimal()
+```
+

@@ -1,0 +1,677 @@
+---
+title: "Individual ERGMs"
+format: pdf
+---
+
+
+```{r}
+#| label: setup
+source("models/helpers.R")
+load('data/network93_f2.RData')
+
+# When this flag is TRUE, the document will
+# avoid trying to fit the models that are not available
+# in the "models/02-individual_ergms_fits" folder.
+skip_missing <- FALSE
+```
+
+
+```{r}
+#| label: setup-cluster
+# Setting up the cluster object
+library(parallel)
+cl <- makeCluster(6, timeout = 5 * 60) # 10 minutes timeout
+invisible(clusterEvalQ(cl, {
+  load('data/network93_f2.RData')
+  source("models/helpers.R")
+  NULL
+}))
+```
+
+## Partial model
+
+```{r}
+#| label: run-partial-models
+set.seed(as.integer(Sys.time()))
+indices <- sample(seq_along(networks))
+
+results_partial <- parLapplyLB(cl, indices, \(i, skip_missing) {
+  
+  # Building the file path and figuring out
+  # if the model has been fitted already
+  fn <- sprintf(
+    "models/02-individual_ergms_fits/%02d_partial.rds",
+    i
+  )
+
+  if (file.exists(fn))
+    return(readRDS(fn))
+
+  if (skip_missing)
+    return(NULL)
+
+  # Preparing the data for the model
+  default_control <- control.ergm(seed = 1233)
+
+  dat <- set_ergm(nets = networks[i])
+
+  model <- with(dat, {
+    model <- Networks(nets) ~ edges + offset(edges)
+    update(model, . ~ . + offset(b1degree(0)) + offset(b2degree(0)))
+  })
+
+  ans <- tryCatch({
+    with(dat, ergm(model,
+      offset.coef = c(-log(n_hcp), -Inf, -Inf),
+      control = default_control
+    ))
+  }, error = \(e) e)
+
+  # Returns invisibly
+  saveRDS(ans, fn)
+
+}, skip_missing = skip_missing)
+```
+
+We now assess the individual model fits, looking at the variability of the parameter estimates
+
+```{r}
+#| label: check-partial-results
+res_partial <- lapply(indices, \(i) {
+  fn <- sprintf(
+    "models/02-individual_ergms_fits/%02d_partial.rds",
+    i
+  )
+  if (!file.exists(fn))
+    return(NULL)
+
+  x <- readRDS(fn)
+
+  # Extracting information about the state
+  state <- unique(x$network %v% "state")
+
+  data.frame(
+    id    = i,
+    coef  = names(coef(x)),
+    value = coef(x),
+    sd    = sqrt(diag(vcov(x))),
+    state = state,
+    n_hcp = sum(x$network %v% "is_actor"),
+    n_pat = sum(!x$network %v% "is_actor"),
+    n     = length(x$network %v% "is_actor"),
+    facility = paste(
+      unique(x$network %v% "Fac_Name"), "-",
+      unique(x$network %v% "Fac_Unit")
+    )
+  )
+}) |> rbindlist()
+
+# Removing the offset
+res_partial <- res_partial[!grepl("offset", coef)]
+```
+
+We now visualize the distribution of the parameter estimates across the models
+
+```{r}
+#| label: visualize-partial-results
+library(ggplot2)
+res_partial <- setorder(res_partial, state, facility, n, value)
+res_partial[, id := as.factor(.I)]
+
+set.seed(12)
+res_partial[, col := sample(colors())[as.integer(as.factor(facility))]]
+
+ggplot(res_partial, aes(x = id, y = value)) +
+  # Adding a convex hull by `facility`
+  geom_polygon(
+    aes(group = facility, colour = col),
+    linewidth = 2,
+    alpha = .5,
+    fill = "transparent",
+    # colour = "steelblue"
+    show.legend = FALSE
+  ) +
+  geom_point(aes(size = n, colour = col)) +
+  # 95% CI bars based on the sd variable
+  geom_errorbar(aes(ymin = value - 1.96 * sd, ymax = value + 1.96 * sd), width = 0.2) +
+  facet_wrap(~state, scales = "free_x") +
+  # Dropping the x-axis since it is uninformative
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    # Also the x-axis label
+    axis.title.x = element_blank()
+    ) +
+  scale_colour_identity() +
+  # Dropping the colour legend
+  guides(colour = "none")  +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red", size = 1) +
+  labs(
+    y = "Edges Parameter Estimate"
+  )
+```
+
+We can assess the stabililty of the parameter estimate by facility looking at the confidence intervals. For any given facility, we can test whether the confidence intervals of the parameter estimates overlap each other:
+
+```{r}
+#| label: check-overlap
+overlap <- NULL
+for (fac in unique(res_partial$facility)) {
+
+  # Subsetting facility
+  res_fac <- res_partial[facility == fac]
+
+  # Checking if there are at least 2 rows
+  if (nrow(res_fac) < 2)
+    next
+
+  for (i in 2:nrow(res_fac)) {
+
+    # Generating the 95% confidence intervals for i
+    ci_i <- c(res_fac[i, "value"] - 1.96 * res_fac[i, "sd"], res_fac[i, "value"] + 1.96 * res_fac[i, "sd"]) |> unlist()
+
+    for (j in 1:(i - 1)) {
+
+      # Generating the 95% confidence intervals for j
+      ci_j <- c(res_fac[j, "value"] - 1.96 * res_fac[j, "sd"], res_fac[j, "value"] + 1.96 * res_fac[j, "sd"]) |> unlist()
+
+      # Checking if the confidence intervals overlap
+      if (ci_i[1] < ci_j[2] && ci_i[2] > ci_j[1]) {
+        overlap <- rbind(overlap, data.frame(
+          state = res_fac[i, "state"],
+          facility = fac, i = i, j = j, overlap = TRUE)
+          )
+      }
+      else {
+        overlap <- rbind(overlap, data.frame(
+          state = res_fac[i, "state"],
+          facility = fac, i = i, j = j, overlap = FALSE)
+          )
+      }
+
+    }
+
+  }
+}
+
+overlap <- data.table(overlap)
+# Tabulating, by state, how CI overlap
+overlap_summary <- overlap[, .(
+  n_overlap = sum(overlap),
+  prop = sum(overlap) / .N,
+  n_total = .N
+  ), by = .(state)]
+
+setorder(overlap_summary, prop)
+
+knitr::kable(overlap_summary)
+```
+
+
+
+## Full model
+
+```{r}
+#| label: run-models
+# Randomly fit the models in parallel
+# Flushing things out
+if (exists("cl")) {
+  parallel::stopCluster(cl)
+}
+cl <- parallel::makeCluster(6, timeout = 5 * 60) # 10 minutes timeout
+invisible(parallel::clusterEvalQ(cl, {
+  load('data/network93_f2.RData')
+  source("models/helpers.R")
+  NULL
+}))
+
+set.seed(as.integer(Sys.time()))
+indices <- sample(seq_along(networks))
+
+results <- parallel::parLapplyLB(cl, indices, \(i, skip_missing) {
+  
+  # Building the file path and figuring out
+  # if the model has been fitted already
+  fn <- sprintf(
+    "models/02-individual_ergms_fits/%02d_full.rds",
+    i
+  )
+
+  if (file.exists(fn))
+    return(readRDS(fn))
+
+  if (skip_missing)
+    return(NULL)
+
+  # Preparing the data for the model
+  default_control <- control.ergm(seed = 1233)
+
+  dat <- set_ergm(nets = networks[i])
+
+  types <- summary(Networks(dat$nets) ~ b1factor("type", levels = 1:10)) |>
+    names() |>
+    gsub(pattern = ".+\\.type\\.", replacement = "")
+
+  types <- types[types != "NA"]
+
+  model <- with(dat, {
+    model <- Networks(nets) ~ edges + offset(edges)
+
+    # Checking which will be the base. By priority
+    if ("Other" %in% types) {
+      id_base <-which(types == "Other")
+    } else if ("RT" %in% types) {
+      id_base <-which(types == "RT")
+    } else if ("PT/OT" %in% types) {
+      id_base <-which(types == "PT/OT")
+    } else if ("CNA" %in% types) {
+      id_base <-which(types == "CNA")
+    } else {
+      id_base <- 1
+    }
+    model <- update(model, . ~ . + N(~b1factor("type", levels = -id_base)) )
+
+    print(id_base)
+
+    
+    # if (length(dat$Nurse))
+    #   model <- update(model, . ~ . + N(~b1factor("Nurse")))
+    
+    # if (length(dat$CNA))
+    #   model <- update(model, . ~ . + N(~b1factor("CNA")))
+
+    # if (length(dat$PTOTRT))
+    #   model <- update(model, . ~ . + N(~b1factor("PTOTRT")))
+
+    if (length(dat$dialysis))
+      model <- update(model, . ~ . + N(~b2factor('dialysis')))
+
+    if (length(dat$wound_care))
+      model <- update(model, . ~ . + N(~b2factor('wound_care')))
+
+    if (length(dat$bedridden))
+      model <- update(model, . ~ . + N(~b2factor('bedridden')))
+
+    if (length(dat$ventilator))
+      model <- update(model, . ~ . + N(~b2factor('ventilator')))
+
+    if (length(dat$mdro))
+      model <- update(model, . ~ . + N(~b2factor('mdro')))
+
+    if (length(dat$wheelchair))
+      model <- update(model, . ~ . + N(~b2factor('wheelchair')))
+
+    update(model, . ~ . + offset(b1degree(0)) + offset(b2degree(0)))
+  })
+
+  ans <- tryCatch({
+    with(dat, ergm(model,
+      offset.coef = c(-log(n_hcp), -Inf, -Inf),
+      control = default_control
+    ))
+  }, error = \(e) e)
+
+  # Returns invisibly
+  saveRDS(ans, fn)
+
+}, skip_missing = skip_missing)
+
+parallel::stopCluster(cl)
+```
+
+## Fitting models with issues
+
+Verifying what proportion has been fitted, and which models failed to fit
+
+```{r}
+#| label: check-results
+saved_models <- list.files(
+  "models/02-individual_ergms_fits/",
+  full.names = TRUE,
+  pattern = ".*_full\\.rds"
+) 
+
+# Getting the indices to see which ones are missing
+saved_indices <- as.integer(gsub(".*\\/([0-9]+)_full\\.rds", "\\1", saved_models))
+
+# Identifying the missing indices
+missing_indices <- setdiff(seq_along(networks), saved_indices)
+```
+
+Visualizing the results of the networks we couldn't fit
+
+```{r}
+library(netplot)
+grobs <- lapply(missing_indices, function(i) {
+  netplot::nplot(networks[[i]], vertex.col = ~type)
+})
+
+gridExtra::grid.arrange(grobs = grobs, nrow = 4, ncol=3)
+```
+
+We also need to identify to which state each of the missing networks belongs.
+
+```{r}
+missing_states <- sapply(missing_indices, \(i) {
+  unique(networks[[i]] %v% "state")
+})
+
+data.frame(
+  State = missing_states,
+  Index = missing_indices
+) |> knitr::kable()
+```
+
+### Model 2
+
+In the case of model 2, there is a single nurse in the data, so, it is hard to capture the ERGM struggles converging the model (apparently), furthermore, there's also only CNA and a single nurse, so, ultimately struggles with this unevenly distributed roles. Refitting the model with at least 2 of each kind helps.
+
+```{r}
+#| label: refit-model-2
+if (2 %in% missing_indices) {
+  dat <- set_ergm(nets = networks[2])
+  ans_2 <- with(dat,
+    ergm(
+      Networks(nets) ~
+        edges +
+        N(~b2factor("dialysis")) +
+        N(~b2factor("wound_care")) + N(~b2factor("bedridden")) + 
+        offset(edges) + offset(b1degree(0)) + offset(b2degree(0))
+      ,
+      control = control.ergm(seed = 1233),
+      offset.coef = c(-log(n_hcp), -Inf, -Inf)
+    )
+  )
+
+  saveRDS(ans_2, "models/02-individual_ergms_fits/02_full.rds")
+}
+```
+
+### Model 12
+
+In the case of model 12, there is colinearity between edges and the type of b1factor terms
+
+```{r}
+#| label: refit-model-12
+if (12 %in% missing_indices) {
+  dat <- set_ergm(nets = networks[12])
+
+  ans_12 <- with(dat,
+    ergm(
+      Networks(nets) ~
+        edges + 
+        N(~b1factor("type", levels = -3)) +
+        # N(~b2factor("dialysis")) +
+        N(~b2factor("wound_care")) + 
+        N(~b2factor("bedridden")) +
+        offset(edges) + offset(b1degree(0)) + offset(b2degree(0)),
+      control = control.ergm(seed = 1233),
+      offset.coef = c(-log(n_hcp), -Inf, -Inf)
+    )
+  )
+
+  saveRDS(ans_12, "models/02-individual_ergms_fits/12_full.rds")
+}
+```
+
+### Model 13
+
+For model 13, dialisis is too close to the boundaries, with b2factor.dialysis.Yes = 1
+
+```{r}
+#| label: refit-model-13
+if (13 %in% missing_indices) {
+  dat <- set_ergm(nets = networks[13])
+
+  ans_13 <- with(dat,
+    ergm(
+      Networks(nets) ~
+        edges + N(~b1factor("type", levels = -3)) + 
+        N(~b2factor("wound_care")) + N(~b2factor("bedridden")) + 
+        offset(edges) + offset(b1degree(0)) + offset(b2degree(0)),
+      control = control.ergm(seed = 1233),
+      offset.coef = c(-log(n_hcp), -Inf, -Inf)
+    )
+  )
+  saveRDS(ans_13, "models/02-individual_ergms_fits/13_full.rds")
+}
+```
+
+### Model 17
+
+
+```{r}
+#| label: refit-model-17
+if (17 %in% missing_indices) {
+  dat <- set_ergm(nets = networks[17])
+
+  ans_17 <- with(dat,
+    ergm(
+      Networks(nets) ~ edges + N(~b1factor("type", levels = -3)) + 
+    N(~b2factor("wound_care")) + N(~b2factor("bedridden")) + 
+    offset(edges) + offset(b1degree(0)) + offset(b2degree(0)),
+      control = control.ergm(seed = 1233),
+      offset.coef = c(-log(n_hcp), -Inf, -Inf)
+    )
+  )
+  saveRDS(ans_17, "models/02-individual_ergms_fits/17_full.rds")
+}
+```
+
+### Model 33
+
+Dialisis was also the issue here
+
+```{r}
+#| label: refit-model-33
+if (33 %in% missing_indices) {
+  dat <- set_ergm(nets = networks[33])
+
+  ans_33 <- with(dat,
+    ergm(
+      Networks(nets) ~ edges + N(~b1factor("type", levels = -3)) + 
+      N(~b2factor("wound_care")) + N(~b2factor("bedridden")) + 
+      offset(edges) + offset(b1degree(0)) + offset(b2degree(0)),
+      control = control.ergm(seed = 1233),
+      offset.coef = c(-log(n_hcp), -Inf, -Inf)
+    )
+  )
+  saveRDS(ans_33, "models/02-individual_ergms_fits/33_full.rds")
+}
+```
+
+
+### Model 35
+
+Dialysis was equal to 2, so the model was failing (again)
+
+```{r}
+#| label: refit-model-35
+if (35 %in% missing_indices) {
+  dat <- set_ergm(nets = networks[35])
+
+  ans_35 <- with(dat,
+    ergm(
+      Networks(nets) ~ edges + N(~b1factor("type", levels = -4)) + # N(~b2factor("dialysis")) + 
+      N(~b2factor("wound_care")) + N(~b2factor("bedridden")) + 
+      offset(edges) + offset(b1degree(0)) + offset(b2degree(0)),
+      control = control.ergm(seed = 1233),
+      offset.coef = c(-log(n_hcp), -Inf, -Inf)
+    )
+  )
+  saveRDS(ans_35, "models/02-individual_ergms_fits/35_full.rds")
+}
+```
+
+### Model 36
+
+Here the issue was b1factor.type.PT/OT (1 only) and bedridden (1 only).
+
+```{r}
+#| label: refit-model-36
+if (36 %in% missing_indices) {
+  dat <- set_ergm(nets = networks[36])
+
+  ans_36 <- with(dat,
+    ergm(
+      Networks(nets) ~ edges + b1factor("type", levels = -c(3, 4)) +
+      N(~b2factor("dialysis")) + 
+      N(~b2factor("wound_care")) + # N(~b2factor("bedridden")) + 
+      offset(edges) + offset(b1degree(0)) + offset(b2degree(0)),
+      control = control.ergm(seed = 1233),
+      offset.coef = c(-log(n_hcp), -Inf, -Inf)
+    )
+  )
+  saveRDS(ans_36, "models/02-individual_ergms_fits/36_full.rds")
+}
+```
+
+### Model 38
+
+We just kept CNA and Nurse, the other two levels were too small
+
+```{r}
+#| label: refit-model-38
+if (38 %in% missing_indices) {
+  dat <- set_ergm(nets = networks[38])
+
+  ans_38 <- with(dat,
+    ergm(
+      Networks(nets) ~ edges +
+      b1factor("type", levels = c(1, 2)) +
+      N(~b2factor("wound_care")) + 
+      N(~b2factor("bedridden")) + offset(edges) + offset(b1degree(0)) + 
+      offset(b2degree(0)),
+      control = control.ergm(seed = 1233),
+      offset.coef = c(-log(n_hcp), -Inf, -Inf)
+    )
+  )
+  saveRDS(ans_38, "models/02-individual_ergms_fits/38_full.rds")
+}
+```
+
+### Model 83
+
+Dialisis has a single case. Also, we are using Nurse as the reference category.
+
+```{r}
+#| label: refit-model-83
+if (83 %in% missing_indices) {
+  dat <- set_ergm(nets = networks[83])
+
+  ans_83 <- with(dat,
+    ergm(
+      Networks(nets) ~ edges + N(~b1factor("type", levels = 2)) + #  N(~b2factor("dialysis")) + 
+      N(~b2factor("wound_care")) + offset(edges) + offset(b1degree(0)) + 
+      offset(b2degree(0)),
+      control = control.ergm(seed = 1233),
+      offset.coef = c(-log(n_hcp), -Inf, -Inf)
+    )
+  )
+  saveRDS(ans_83, "models/02-individual_ergms_fits/83_full.rds")
+}
+```
+
+## Taking a look at potential errors
+
+```{r}
+error_fits <- NULL
+for (s in saved_indices) {
+  fn <- sprintf("models/02-individual_ergms_fits/%02i_full.rds", s)
+  if (inherits(readRDS(fn), "error"))
+    error_fits <- c(error_fits, s)
+}
+```
+
+Only error is 39
+
+### Model 39
+
+```{r}
+#| label: refit-model-39
+if (39 %in% error_fits) {
+  dat <- set_ergm(nets = networks[39])
+
+  ans_39 <- with(dat,
+    ergm(
+      Networks(nets) ~ edges + N(~b1factor("type", levels = -c(3, 5))) + 
+      N(~b2factor("wound_care")) +
+      N(~b2factor("bedridden")) + 
+    offset(edges) + offset(b1degree(0)) + offset(b2degree(0)),
+      control = control.ergm(seed = 1233),
+      offset.coef = c(-log(n_hcp), -Inf, -Inf)
+    )
+  )
+  saveRDS(ans_39, "models/02-individual_ergms_fits/39_full.rds")
+}
+```
+
+
+## Analyzing all fits
+
+
+```{r}
+fits_coefs <- lapply(seq_along(networks), \(i) {
+
+  out <- if (i %in% saved_indices)
+    readRDS(sprintf("models/02-individual_ergms_fits/%02i_full.rds", i))
+  else
+    get(paste0("ans_", i))
+
+  ans <- summary(out)$coefficients
+
+  cbind(data.frame(
+    id = i,
+    coef = rownames(ans)
+  ), as.data.frame(ans))
+
+}) |> rbindlist()
+
+# Excluding the offset coefficients
+fits_coefs <- fits_coefs[!grepl("offset", fits_coefs$coef), ]
+
+# Correcting names (removing the N(1)~ prefix)
+fits_coefs$coef <- gsub("N\\(1\\)~", "", fits_coefs$coef)
+```
+
+We now can visualize using ggridges the distribution of the coefficients
+
+```{r}
+library(ggridges)
+
+fits_coefs[
+  abs(Estimate) <= 5 &
+  !grepl("Other", coef)
+  ] |>
+ggplot(aes(x = Estimate, y = coef)) +
+  geom_density_ridges(
+    alpha = 0.5,
+    jittered_points = TRUE, position = "raincloud"
+    ) +
+  geom_vline(xintercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    # Adding a note regarding the ones excluded (x out of y)
+    caption = sprintf("Excluded %i out of %i coefficients with |Estimate| > 5", sum(abs(fits_coefs$Estimate) > 5), nrow(fits_coefs))
+  )
+```
+
+Instead of looking at the distribution, we can assess how often the effects were positive or negative (significant and not):
+
+
+```{r}
+fits_coefs[, .(
+  `Positive` = mean(Estimate > 0, na.rm = TRUE),
+  `Negative` = mean(Estimate < 0, na.rm = TRUE),
+  `Positive (*)` = mean(Estimate > 0 & `Pr(>|z|)` < 0.05, na.rm = TRUE),
+  `Negative (*)` = mean(Estimate < 0 & `Pr(>|z|)` < 0.05, na.rm = TRUE),
+  count    = .N
+), by = coef] |>
+  setorder(-`Positive (*)`) |>
+  knitr::kable(digits = 2)
+```
+
+Compared to other categories, CNAs and Nurses both tend to have a significantly higher number of ties compared to other care professionals, including therapists, physicians, and other healthcare providers. The oposite is true for PT and OTs who have a significantly lower tendency to form ties.
+
+On the other hand, bedridden and wound care patients tend to have a significantly higher number of ties compared to other patient populations, but the significance is less consistent (fewer than 6 and 5 % of the time).
+
+This is the most sophisticated analysis we have conducted so far. Adding mixing patterns at the individual network level is cumbersome. Instead, we will focus on using pooled models to analyze the data.

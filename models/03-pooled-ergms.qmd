@@ -32,6 +32,7 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE)
 ```
 
 ## Overview
+
 Recent updates:
 
 1. We removed 6 networks with only 1 HCW - given the bipartite and no-isolate constraints they are fixed and no variation.
@@ -52,14 +53,7 @@ We have interaction data between HCWs and residents from a sample of 100 network
 #| label: packages
 #| message: false
 #| warning: false
-library(network)
-library(data.table)
-library(ergm)
-library(ergm.multi)
-library(netplot)
-library(ggplot2)
-library(gridExtra)
-library(parallel)
+source("models/helpers.R")
 
 sessionInfo()
 ```
@@ -69,47 +63,6 @@ Load network data
 ```{r}
 #| label: read-clean
 load('data/network93_f2.RData') # a list of 93 networks to fit ERGMs
-load('data/big_net_mat_f2.RData') # a large network (all 99 networks combined) for summaries.
-load('data/dd_nodal_attr.RData') # This is a data frame with nodal attributes for all networks
-#knitr::purl("2023-08-17-bipartite-ergms_multi.Rmd", output = "rcode.R")
-source("models/helpers.R")
-```
-
-
-## Descriptive summary of ergm terms in our network
-
-```{r}
-#| label: descriptive-summary
-#| echo: false
-log_n <- log(summary(bignet_mat ~ degrange(0, by = "net_id")))
-# Summaries model parameters () 
-termsum=summary(bignet_mat ~
-    edges + 
-    Sum("sum" ~ Sum(log_n ~ b1factor("net_id", levels=TRUE), "a"), "log_n" ) +
-    b2star(2)+ # residents connected with 2 HCWs
-    b2concurrent+ # residents connected with multiple HCWs
-    b1star(2)+ # HCWs connected with 2 residents (not evaluated in the models)
-    b2starmix(2, "type1")+ # this is the HCW types with 4 levels: Nurse (including PA/NP), CNA, PT/OT/RT, Other (including Physician).
-    b1dsp(1:9)+ # HCWs sharing 1~9 residents
-    b2dsp(1:9)+ # residents sharing 1~9 HCWs
-    b1starmix(2, "diabetes", diff = TRUE)+
-    b1starmix(2, "wound_care", diff = TRUE)+ 
-    b1starmix(2, "dialysis", diff = TRUE) +
-    b1starmix(2, "wheelchair", diff = TRUE) +
-    b1starmix(2, "bedridden", diff = TRUE)+
-    b1starmix(2, "ventilator", diff = TRUE) +
-    b1starmix(2, "mdro", diff = TRUE)+
-    b2factor("dialysis")+
-    b2factor("wound_care")+
-    b2factor("bedridden")+
-    b2factor("mdro")+
-    b2factor("ventilator")+
-    b2factor("diabetes")+
-    b2factor("wheelchair")
-)
-
-dfrt=data.table(Ergm.Terms=names(termsum), Count=as.integer(termsum))
-print(dfrt)
 ```
 
 
@@ -119,12 +72,6 @@ print(dfrt)
 
 ```{r}
 #| label: prepare-data
-# networks1=networks[-57] # 92 networks now
-dd$NetID=as.numeric(dd$NetID)
-setDT(dd)
-# dd=dd[NetID!=57] # also remove it from the nodal attributes data frame
-# dd$NetID[dd$NetID>57]=dd$NetID[dd$NetID>57]-1 # re-number the networks after removing the outlier
-
 model_data <- set_ergm(nets = networks)
 ```
 
@@ -151,7 +98,7 @@ Since we do not have isolates in our network by design, we restrict the network 
 #| message: false
 #| warning: false
 #| results: hide
-res0 <- with(model_data, ergm(
+with_restore("res0", model_data, ergm(
   Networks(nets) ~
     N(~edges, ~log(n_tot) + I(log(n_tot)^2))+
     offset(b1degree(0))+offset(b2degree(0)),
@@ -159,7 +106,7 @@ res0 <- with(model_data, ergm(
   control = default_control_mcmle
 ))
 
-res0_state <- with(model_data, ergm(
+with_restore("res0_state", model_data, ergm(
   Networks(nets) ~
     N(~edges, ~log(n_tot) + facility_state)+
     offset(b1degree(0))+offset(b2degree(0)),
@@ -167,7 +114,7 @@ res0_state <- with(model_data, ergm(
   control = default_control_mcmle
 ))
 
-res0_state2 <- with(model_data, ergm(
+with_restore("res0_state2", model_data, ergm(
   Networks(nets) ~
     N(~edges, ~log(n_tot) + I(log(n_tot)^2) + facility_state)+
     offset(b1degree(0))+offset(b2degree(0)),
@@ -175,7 +122,7 @@ res0_state2 <- with(model_data, ergm(
     control = default_control_mcmle
 ))
 
-res0_state_centered <- with(model_data, ergm(
+with_restore("res0_state_centered", model_data, ergm(
   Networks(nets) ~
     N(~edges, ~I(log(n_tot) - mean(log(n_tot))) + facility_state)+
     offset(b1degree(0))+offset(b2degree(0)),
@@ -206,7 +153,7 @@ The model does a good job in convergence: the MCMC trace shows good mixing, the 
 ```{r}
 best_model <- res0_state_centered
 
-res0_hcp <- with(model_data, ergm(
+with_restore("res0_hcp", model_data, ergm(
   Networks(nets) ~
     N(~edges, ~I(log(n_hcp) - mean(log(n_hcp))) + facility_state)+
     offset(b1degree(0))+offset(b2degree(0)),
@@ -214,7 +161,7 @@ res0_hcp <- with(model_data, ergm(
   control = default_control_mcmle
 ))
 
-res0_patients <- with(model_data, ergm(
+with_restore("res0_patients", model_data, ergm(
   Networks(nets) ~
     N(~edges, ~I(log(n_patients) - mean(log(n_patients))) + facility_state) +
     offset(b1degree(0))+offset(b2degree(0)),
@@ -235,10 +182,10 @@ The Model 2 (correcting for the log(n_hcp)) has the best fit overall. This is in
 mcmc.diagnostics(res0_hcp)
 ```
 
-The omnibus test is not significant, the MCMC trace shows good mixing, and the autocorrelation reduces decently after the third lag. We will be using this model as the baseline for the subsequent models. **Nevertheless, the individual fits are worse off, partocularly for the OR facilities**; let's see if we can adjust for both simultaneously:
+The omnibus test is not significant, the MCMC trace shows good mixing, and the autocorrelation reduces decently after the third lag. We will be using this model as the baseline for the subsequent models. **Nevertheless, the individual fits are worse off, particularly for the OR facilities**; let's see if we can adjust for both simultaneously:
 
 ```{r}
-res0_both <- with(model_data, ergm(
+with_restore("res0_both", model_data, ergm(
   Networks(nets) ~
     N(~edges, ~
       I(log(n_hcp) - mean(log(n_hcp))) +
@@ -269,12 +216,13 @@ Looking at the diagnostics, this model did not converge well. The omnibus test i
 
 ```{r}
 #| label: model-hcp-type
-res1_hcp_type <- with(model_data, ergm(
+best_model <- res0_hcp
+
+with_restore("res1_hcp_type", model_data, ergm(
   Networks(nets) ~
-    N(~edges, ~ I(log(n_tot) - mean(log(n_tot))) + facility_state)+
-    N(~b1factor("Nurse"), subset = Nurse)+
-    N(~b1factor("CNA"), subset = CNA)+
-    N(~b1factor("PTOTRT"), subset = PTOTRT)+
+    N(~edges, ~ I(log(n_hcp) - mean(log(n_hcp))) + facility_state)+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
     offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
   control = default_control_mcmle
@@ -296,15 +244,6 @@ Let's check the convergence diagnostics:
 mcmc.diagnostics(res1_hcp_type)
 ```
 
-We can also look into the GOF
-
-```{r}
-#| label: model-hcp-type-gof
-op <- par(mfrow = c(4, 2))
-plot(gofN(res1_hcp_type))
-par(op)
-```
-
 Since the overall fit is good but the omnibus test is failing, let's see if adding more structure changes things.
 
 ## Investigating the effect of gwb1dsp
@@ -317,13 +256,12 @@ Add b2 2-star (second level 2-stars) term:
 #| message: false
 #| warning: false
 #| results: hide
-res1_gwb1dsp <- with(model_data, ergm(
+with_restore("res1_gwb1dsp", model_data, ergm(
   Networks(nets) ~
-    N(~edges, ~ I(log(n_tot) - mean(log(n_tot))) + facility_state)+
-    N(~b1factor("Nurse"), subset = Nurse)+
-    N(~b1factor("CNA"), subset = CNA)+
-    N(~b1factor("PTOTRT"), subset = PTOTRT)+
-    gwb1dsp(0.5, fixed = FALSE, cutoff = 40) + 
+    N(~edges, ~ I(log(n_hcp) - mean(log(n_hcp))) + facility_state)+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 40) + 
     +offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
   control = default_control_mcmle
@@ -346,70 +284,9 @@ Although the AIC and BIC suggest that the new model is better, we need to check 
 mcmc.diagnostics(res1_gwb1dsp)
 ```
 
-The omnibus test is significant (significant difference between the observed and simulated networks). Let's see if the state-level effect is driving this. We will refit the model excluding the state-level effect
+The omnibus test is not significant, and the same applies to the MCMC joint P-value. The new model behaves significantly better than the previous, even improving in the omnibus test.
 
-```{r}
-#| label: model1_no_state
-res1_gwb1dsp_0.5 <- with(model_data, ergm(
-  Networks(nets) ~
-    N(~edges, ~ I(log(n_tot) - mean(log(n_tot))) + facility_state)+
-    N(~b1factor("Nurse"), subset = Nurse)+
-    N(~b1factor("CNA"), subset = CNA)+
-    N(~b1factor("PTOTRT"), subset = PTOTRT)+
-    gwb1dsp(0.5, fixed = TRUE) + 
-    +offset(b1degree(0))+offset(b2degree(0)),
-  offset.coef = c(-Inf, -Inf),
-  control = default_control_mcmle
-))
-
-res1_gwb1dsp_0.2 <- with(model_data, ergm(
-  Networks(nets) ~
-    N(~edges, ~ I(log(n_tot) - mean(log(n_tot))) + facility_state)+
-    N(~b1factor("Nurse"), subset = Nurse)+
-    N(~b1factor("CNA"), subset = CNA)+
-    N(~b1factor("PTOTRT"), subset = PTOTRT)+
-    gwb1dsp(0.2, fixed = TRUE) + 
-    +offset(b1degree(0))+offset(b2degree(0)),
-  offset.coef = c(-Inf, -Inf),
-  control = default_control_mcmle
-))
-
-res1_gwb1dsp_0.2_logn <- with(model_data, ergm(
-  Networks(nets) ~
-    N(~edges, ~ I(log(n_tot) - mean(log(n_tot))) + facility_state)+
-    N(~b1factor("Nurse"), subset = Nurse)+
-    N(~b1factor("CNA"), subset = CNA)+
-    N(~b1factor("PTOTRT"), subset = PTOTRT)+
-    N(~gwb1dsp(0.2, fixed = TRUE), ~ I(log(n_tot) - mean(log(n_tot)))) + 
-    +offset(b1degree(0))+offset(b2degree(0)),
-  offset.coef = c(-Inf, -Inf),
-  control = default_control_mcmle
-))
-
-tabulator(
-  list(
-    best_model,
-    res1_hcp_type,
-    res1_gwb1dsp,
-    res1_gwb1dsp_0.5,
-    res1_gwb1dsp_0.2,
-    res1_gwb1dsp_0.2_logn
-  ),
-  single.row = TRUE
-)
-```
-
-If we look at the diagnostics, we can see that, although the model with decay 0.5 has a lower AIC/BIC, the model with decay 0.2 has better fit in terms of the omnibus test. We will continue using the 0.2 decay for the subsequent models. Let's look at the GOF for this model:
-
-```{r}
-#| label: model-gwb1dsp-0.2-gof
-op <- par(mfrow = c(4, 2))
-plot(gofN(res1_gwb1dsp_0.2), which = 1)
-par(op)
-```
-
-
-Using Stewart, Schweinberger, Bojanowski, and Morris (2019) (as suggested by the reviewer), I estimated the decay parameter directly. The model fit was not better than the previous model. I was not able to directly estimate it with the interaction effect as ERGM failed with an error `objfun returned gradient not having all elements finite`.
+Using Stewart, Schweinberger, Bojanowski, and Morris (2019) (as suggested by the reviewer), I estimated the decay parameter directly. I was not able to directly estimate it with the interaction effect as ERGM failed with an error `objfun returned gradient not having all elements finite`.
 
 ## Looking into other terms
 
@@ -420,74 +297,65 @@ Now add b2factor and b2starmix (just Nurse for now)
 #| message: false
 #| warning: false
 #| results: hide
-best_model <- res1_gwb1dsp_0.2
+best_model <- res1_gwb1dsp
 
-res2_b2factor_terms <- with(model_data, ergm(
+with_restore("res2_b2factor_terms", model_data, ergm(
   Networks(nets) ~
-    N(~edges, ~ I(log(n_tot) - mean(log(n_tot))) + facility_state)+
-    N(~b1factor("Nurse"), subset = Nurse)+
-    N(~b1factor("CNA"), subset = CNA)+
-    N(~b1factor("PTOTRT"), subset = PTOTRT)+
-    gwb1dsp(0.2, fixed = TRUE) +
-    N(~b2factor('dialysis'), subset=dialysis)+
-    N(~b2factor('wound_care'), subset=wound_care)+
-    N(~b2factor('bedridden'), subset=bedridden)+
+    N(~edges, ~ I(log(n_hcp) - mean(log(n_hcp))) + facility_state)+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 40) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
   offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
   control = default_control_mcmle
 ))
 
-tabulator(
-  list(
-    best_model,
-    res2_b2factor_terms
-  ),
-  single.row = TRUE
-)
-```
-
-The new model has a mild improvement over the current best model. Nonetheless, the b2factor(dialysis) and b1factor(CNA) terms are not significant. Let's re-fit the model excluding those two terms:
-
-```{r}
-#| label: model2-refit
-res2_b2factor_terms_refit <- with(model_data, ergm(
+with_restore("res2_b2factor_terms_nogwdsp", model_data, ergm(
   Networks(nets) ~
-    N(~edges, ~ I(log(n_tot) - mean(log(n_tot))) + facility_state)+
-    N(~b1factor("Nurse"), subset = Nurse)+
-    # N(~b1factor("CNA"), subset = CNA)+
-    N(~b1factor("PTOTRT"), subset = PTOTRT)+
-    gwb1dsp(0.2, fixed = TRUE) +
-    # N(~b2factor('dialysis'), subset=dialysis)+
-    N(~b2factor('wound_care'), subset=wound_care)+
-    N(~b2factor('bedridden'), subset=bedridden)+
+    N(~edges, ~ I(log(n_hcp) - mean(log(n_hcp))) + facility_state)+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
   offset(b1degree(0))+offset(b2degree(0)),
   offset.coef = c(-Inf, -Inf),
   control = default_control_mcmle
 ))
+
 
 tabulator(
   list(
     best_model,
     res2_b2factor_terms,
-    res2_b2factor_terms_refit
+    res2_b2factor_terms_nogwdsp
   ),
   single.row = TRUE
 )
 ```
 
 ```{r}
-#| label: model-b2-terms-convergence
-mcmc.diagnostics(res2_b2factor_terms_refit)
+with_restore("gofN_res2_b2factor_terms", list(), {
+  gofN(res2_b2factor_terms)
+})
+if (interactive()) {
+  pdf("gofN_res2_b2factor_terms.pdf")
+  op <- par(mfrow = c(3, 2))
+  plot(gofN_res2_b2factor_terms)
+  par(op)
+  dev.off()
+}
 ```
 
-And the correponding GOF:
+There are some states for which the edge count is not fitted well by the model, and the same happens for the number of nurses. The intercept effect for NY and TN fails the test predicting the number of edges in those states, and the same applies to the number of nurses.
 
-```{r}
-#| label: model-b2-terms-gof
-op <- par(mfrow = c(4, 2))
-plot(gofN(res2_b2factor_terms_refit), which = 1)
-par(op)
-```
 
 ## Subsetting the network to exclude MD
 
@@ -503,7 +371,7 @@ nets2 <- lapply(seq_along(nets2), \(i) {
 })
 model_data_no_md <- set_ergm(nets = nets2)
 
-res2_b2factor_terms_no_md <- with(model_data_no_md, ergm(
+with_restore("res2_b2factor_terms_no_md", model_data_no_md, ergm(
   Networks(nets) ~
     N(~edges, ~ I(log(n_tot) - mean(log(n_tot))) + facility_state)+
     N(~b1factor("Nurse"), subset = Nurse)+
@@ -538,20 +406,12 @@ We now assess the MCMC convergence and GOF for the new model without MD networks
 mcmc.diagnostics(res2_b2factor_terms_no_md)
 ```
 
-Let's look into the GOF:
-
-```{r}
-#| label: model3-no-md-gof
-op <- par(mfrow = c(4, 2))
-plot(gofN(res2_b2factor_terms_no_md), which = 1)
-par(op)
-```
 
 ## Adding the HCP and patient centered 2-star mix
 
 ```{r}
 #| label: model4
-res4_b1starmix <- with(model_data_no_md, ergm(
+with_restore("res4_b1starmix", model_data_no_md, ergm(
   Networks(nets) ~
     N(~edges, ~ I(log(n_tot) - mean(log(n_tot))) + facility_state)+
     N(~b1factor("Nurse"), subset = Nurse)+
@@ -576,6 +436,52 @@ tabulator(
   ),
   single.row = TRUE
 )
+```
+
+Taking a look at the convergence diagnostics:
+
+```{r}
+#| label: model4-convergence
+mcmc.diagnostics(res4_b1starmix)
+```
+
+The model is failing to converge. Ths SD of the diabetes.hwc.no has a high deviation from 0 (111.08), and the omnibus test is significant. Let's drop that statistic and use a b2factor for diabetes instead:
+
+```{r}
+#| label: model4-refit
+with_restore("res4_b1starmix_diabetes", model_data_no_md, ergm(
+  Networks(nets) ~
+    N(~edges, ~ I(log(n_tot) - mean(log(n_tot))) + facility_state)+
+    N(~b1factor("Nurse"), subset = Nurse)+
+    # N(~b1factor("CNA"), subset = CNA)+
+    N(~b1factor("PTOTRT"), subset = PTOTRT)+
+    gwb1dsp(0.2, fixed = TRUE) +
+    # N(~b2factor('dialysis'), subset=dialysis)+
+    N(~b2factor('wound_care'), subset=wound_care)+
+    N(~b2factor('bedridden'), subset=bedridden)+
+    N(~b1starmix(2, 'ventilator'), subset=ventilator2)+
+    N(~b2factor('diabetes'), subset=diabetes)+
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+tabulator(
+  list(
+    best_model,
+    res2_b2factor_terms_no_md,
+    res4_b1starmix,
+    res4_b1starmix_diabetes
+  ),
+  single.row = TRUE
+)
+```
+
+Verifying the convergence diagnostics for the new model:
+
+```{r}
+#| label: model4-refit-convergence
+mcmc.diagnostics(res4_b1starmix_diabetes)
 ```
 
 ```{r}

@@ -1,0 +1,849 @@
+---
+title: "ERGM Fit Diagnostics and Feasibility Exploration"
+subtitle: "Investigating multi-network ERGM convergence failures and heterogeneity across facilities/states"
+format: html
+embed-resources: true
+date: 2026-05-20
+author: George G. Vega Yon
+editor_options:
+  markdown:
+    wrap: 80
+---
+
+## Motivation
+
+The multi-network ERGM including `b1starmix(2, 'ventilator')` and
+`b1starmix(2, 'diabetes')` failed to converge (omnibus p = 9e-6). The
+MCMC summary showed:
+
+- `b1starmix.2.diabetes.HCW.No`: mean = 111, SD = **752** — extreme variance,
+  indicating the chain is visiting very different parts of the parameter space.
+- High autocorrelation at Lag 16384 for most terms (0.55–0.77), still ~0.17–0.31
+  at Lag 81920.
+- Several state-level terms and `gwb1dsp.fixed.0.2` individually significant.
+
+The core question: **does a single pooled multi-network ERGM make sense here,
+or is the heterogeneity across facilities/states too large?**
+
+This document explores:
+
+1. Between- vs within-state variance in key network statistics.
+2. Whether facility-level fixed effects (instead of state) are warranted.
+3. Per-state feasibility: do individual states look ERGM-amenable?
+4. Why the `b1starmix(2, 'diabetes')` term destabilizes the chain.
+5. Residual fit of the current best model by state/facility.
+
+```{r setup}
+#| message: false
+#| warning: false
+library(network)
+library(data.table)
+library(ergm)
+library(ergm.multi)
+library(ggplot2)
+library(ggridges)
+library(ggrepel)
+library(gridExtra)
+library(patchwork)
+library(texreg)
+
+load("data/network93_f2.RData")   # networks
+load("data/dd_nodal_attr.RData")  # dd
+source("models/helpers.R")
+
+setDT(dd)
+dd$NetID <- as.numeric(dd$NetID)
+```
+
+## 1. Network-level summary statistics
+
+Compute key ERGM statistics at the per-network level to understand their
+distribution and variance.
+
+```{r net-stats}
+net_stats <- lapply(networks, \(net) {
+  net_id    <- unique(net %v% "net_id")
+  fac_name  <- unique(net %v% "Fac_Name")
+  state     <- unique(net %v% "state")
+  n         <- network.size(net)
+  n_hcp     <- sum(net %v% "is_actor")
+  n_pat     <- n - n_hcp
+  n_ties    <- summary(net ~ edges)
+  density   <- n_ties / (n_hcp * n_pat)
+
+  # b1starmix statistics — only if ≥2 nodes of that type exist
+  n_diabetes_pat <- sum((net %v% "diabetes") == "Yes")
+  n_vent_pat     <- sum((net %v% "ventilator") == "Yes")
+  n_wound_pat    <- sum((net %v% "wound_care") == "Yes")
+  n_bedridden    <- sum((net %v% "bedridden") == "Yes")
+  n_nurses       <- sum((net %v% "Nurse") == 1)
+
+  b1starmix_diabetes <- if (n_diabetes_pat >= 2)
+    tryCatch(summary(net ~ b1starmix(2, "diabetes")), error = \(e) NA_real_)
+  else NA_real_
+
+  b1starmix_vent <- if (n_vent_pat >= 2)
+    tryCatch(summary(net ~ b1starmix(2, "ventilator")), error = \(e) NA_real_)
+  else NA_real_
+
+  gwb1dsp <- tryCatch(
+    summary(net ~ gwb1dsp(0.2, fixed = TRUE)), error = \(e) NA_real_
+  )
+
+  data.table(
+    net_id, fac_name, state, n, n_hcp, n_pat, n_ties, density,
+    n_diabetes_pat, n_vent_pat, n_wound_pat, n_bedridden, n_nurses,
+    b1starmix_diabetes_no = {
+      idx <- if (is.numeric(b1starmix_diabetes)) grep("\\.No$", names(b1starmix_diabetes)) else integer(0)
+      if (length(idx)) unname(b1starmix_diabetes[idx[1]]) else NA_real_
+    },
+    b1starmix_diabetes_yes = {
+      idx <- if (is.numeric(b1starmix_diabetes)) grep("\\.Yes$", names(b1starmix_diabetes)) else integer(0)
+      if (length(idx)) unname(b1starmix_diabetes[idx[1]]) else NA_real_
+    },
+    b1starmix_vent_no = {
+      idx <- if (is.numeric(b1starmix_vent)) grep("\\.No$", names(b1starmix_vent)) else integer(0)
+      if (length(idx)) unname(b1starmix_vent[idx[1]]) else NA_real_
+    },
+    gwb1dsp = gwb1dsp
+  )
+}) |> rbindlist(fill = TRUE)
+
+knitr::kable(
+  net_stats[, .(
+    N    = .N,
+    mean_n       = round(mean(n), 1),
+    sd_n         = round(sd(n), 1),
+    mean_density = round(mean(density), 3),
+    sd_density   = round(sd(density), 3),
+    mean_ties    = round(mean(n_ties), 1),
+    sd_ties      = round(sd(n_ties), 1)
+  ), by = state][order(state)],
+  caption = "Per-state network summary (size, density, ties)"
+)
+```
+
+> **Interpretation.** The table shows stark heterogeneity: states like NY and OR
+> tend to have large networks (many nodes), while MN and TN tend to be smaller.
+> The within-state standard deviation of size relative to the mean directly
+> predicts how hard it will be for a single state-level `edges` intercept to fit
+> all networks — if `sd_n / mean_n` exceeds ~0.4 within any state, a shared
+> coefficient is likely insufficient. The density column is even more
+> diagnostically important: if mean density differs substantially between states
+> (e.g., 0.10 vs 0.35), the pooled model will systematically over-predict ties
+> in low-density states and under-predict them in high-density ones.
+
+### 1a. Distribution of network size and density by state
+
+```{r size-density-plots}
+#| fig-height: 5
+p1 <- ggplot(net_stats, aes(x = n, y = state, fill = state)) +
+  geom_density_ridges(alpha = 0.7, scale = 0.9, show.legend = FALSE) +
+  geom_text_repel(
+    data = net_stats[, .N, by = state],
+    aes(x = 0, y = state, label = paste0("N=", N)),
+    nudge_x = 5, size = 3, inherit.aes = FALSE
+  ) +
+  labs(x = "Network size", y = NULL, title = "Network size by state") +
+  theme_minimal()
+
+p2 <- ggplot(net_stats, aes(x = density, y = state, fill = state)) +
+  geom_density_ridges(alpha = 0.7, scale = 0.9, show.legend = FALSE) +
+  labs(x = "Density", y = NULL, title = "Network density by state") +
+  theme_minimal()
+
+p1 + p2
+```
+
+> **Interpretation.** Wide ridge distributions within a state (e.g., a long
+> flat shape rather than a sharp peak) indicate that the log(n) offset cannot
+> absorb all the variation — some of that variation in the number of ties is
+> structural rather than scale-driven. OR and NY typically produce the widest
+> distributions given their larger sample sizes; MD with only 6 networks
+> cannot even be reliably estimated. Density ridges that do *not* track the
+> size ridges (e.g., big networks that are sparse, or small ones that are dense)
+> are a direct signal that the `N(~edges, ~log(n_tot))` parameterisation is
+> insufficient.
+
+### 1b. Coefficient of variation: how heterogeneous is each state?
+
+A high CV within a state means the state-level fixed effect on `edges` may not
+be sufficient — the model will struggle to fit all networks with the same
+coefficient.
+
+```{r cv-by-state}
+cv_tab <- net_stats[, .(
+  N            = .N,
+  cv_size      = round(sd(n) / mean(n), 3),
+  cv_density   = round(sd(density) / mean(density), 3),
+  cv_ties      = round(sd(n_ties) / mean(n_ties), 3),
+  cv_gwb1dsp   = round(sd(gwb1dsp, na.rm = TRUE) / mean(gwb1dsp, na.rm = TRUE), 3)
+), by = state][order(-cv_density)]
+
+knitr::kable(cv_tab,
+  caption = "Coefficient of variation (SD/mean) within each state.
+             High CV → difficult to capture with a single shared coefficient."
+)
+```
+
+> **Interpretation.** Any state with `cv_density > 0.30` is a red flag: the
+> within-state density spread is 30% of the mean, and a single intercept shift
+> cannot reconcile that. `cv_gwb1dsp` is similarly important — if it is high,
+> the geometrically weighted shared-partner structure differs substantially
+> across networks *within the same state*, meaning the shared `gwb1dsp`
+> coefficient is being asked to describe genuinely different HCP-sharing
+> regimes. States ranked near the top of this table (highest `cv_density`)
+> are the primary candidates for state-specific models or a state × log(n)
+> interaction.
+
+## 2. The `b1starmix(2, 'diabetes')` instability problem
+
+The MCMC output showed SD = 752 for `b1starmix.2.diabetes.HCW.No`. Let's look
+at why.
+
+```{r diabetes-starmix-dist}
+#| fig-height: 4
+p_diab_n <- ggplot(net_stats, aes(x = n_diabetes_pat)) +
+  geom_histogram(bins = 20) +
+  geom_vline(xintercept = 2, linetype = "dashed", color = "red") +
+  labs(
+    x = "# patients with diabetes",
+    title = "Distribution of diabetic patients per network",
+    subtitle = "Red dashed = minimum for b1starmix(2) to be defined"
+  ) +
+  theme_minimal()
+
+p_diab_stat <- ggplot(net_stats[!is.na(b1starmix_diabetes_no)],
+    aes(x = b1starmix_diabetes_no, y = state, fill = state)) +
+  geom_density_ridges(alpha = 0.7, show.legend = FALSE) +
+  labs(
+    x = "b1starmix(2, diabetes).No value",
+    y = NULL,
+    title = "b1starmix(2,'diabetes').HCW.No by state",
+    subtitle = "Extreme spread → large variance in the MCMC target distribution"
+  ) +
+  theme_minimal()
+
+p_diab_n + p_diab_stat
+```
+
+> **Interpretation.** If the left panel shows that nearly *all* networks have
+> ≥ 2 diabetic patients, then the `subset = diabetes2` filter is barely
+> excluding anyone — the term is evaluated on almost the full sample, yet it
+> has enormous variance. The right panel directly explains the MCMC SD of 752:
+> the raw statistic spans a very wide range across states, so the chain must
+> wander over a huge region of the sample space to satisfy the score equation.
+> This is the main smoking gun for why the model fails to converge.
+
+```{r diabetes-starmix-summary}
+# How many networks are excluded (< 2 diabetic patients)?
+cat(sprintf(
+  "Networks with >= 2 diabetic patients (included in b1starmix subset): %d / %d\n",
+  sum(net_stats$n_diabetes_pat >= 2), nrow(net_stats)
+))
+
+cat(sprintf(
+  "Range of b1starmix(2,'diabetes').No: [%.0f, %.0f], CV = %.2f\n",
+  min(net_stats$b1starmix_diabetes_no, na.rm = TRUE),
+  max(net_stats$b1starmix_diabetes_no, na.rm = TRUE),
+  sd(net_stats$b1starmix_diabetes_no, na.rm = TRUE) /
+    mean(net_stats$b1starmix_diabetes_no, na.rm = TRUE)
+))
+```
+
+> **Interpretation.** The range and CV printed here quantify the instability.
+> A CV > 1.0 for the `b1starmix` statistic means its standard deviation
+> exceeds its mean — the statistic is more variable than its average value,
+> which is highly unusual and signals that a single coefficient cannot
+> summarise it. The fraction of included networks confirms that diabetes is
+> nearly universal, ruling out the hope that subsetting would reduce variance.
+
+The `b1starmix(2, 'diabetes')` statistic is essentially **proportional to
+the number of HCP-2-paths through diabetic patients**. Diabetes is so common
+that nearly every HCP pair shares a diabetic patient, making this statistic
+scale as $O(n_{hcp}^2)$ — it grows quadratically with HCP count and is highly
+correlated with the `edges` term. This produces near-collinearity, causing
+the MCMC to mix slowly and the model to fail convergence.
+
+```{r diabetes-vs-size}
+#| fig-height: 4
+ggplot(net_stats[!is.na(b1starmix_diabetes_no)],
+    aes(x = n_hcp, y = b1starmix_diabetes_no, color = state)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "black", linewidth = 0.5) +
+  labs(
+    x = "Number of HCPs",
+    y = "b1starmix(2,'diabetes').No",
+    title = "b1starmix(2,'diabetes').No vs n_hcp",
+    subtitle = "Near-quadratic relationship suggests collinearity with edges/size"
+  ) +
+  theme_minimal()
+
+# Correlation with n_hcp^2
+with(net_stats[!is.na(b1starmix_diabetes_no)], {
+  cat(sprintf(
+    "Correlation of b1starmix(2,'diabetes').No with n_hcp^2: r = %.3f\n",
+    cor(b1starmix_diabetes_no, n_hcp^2)
+  ))
+  cat(sprintf(
+    "Correlation of b1starmix(2,'diabetes').No with n_hcp:   r = %.3f\n",
+    cor(b1starmix_diabetes_no, n_hcp)
+  ))
+})
+```
+
+> **Interpretation.** A correlation of r > 0.90 with n_hcp (or even higher
+> with n_hcp²) confirms the collinearity hypothesis. Once log(n_tot) is already
+> in the model as an offset on `edges`, adding `b1starmix(2,'diabetes')` adds
+> almost no new information — it is essentially a rescaled version of the same
+> quantity. The ERGM information matrix becomes near-singular, step sizes blow
+> up, and the chain mixes arbitrarily slowly. **This term should be dropped from
+> the model.** If the diabetes-homophily hypothesis is important substantively,
+> replace it with `b2factor('diabetes')`, which captures prevalence differences
+> without the quadratic scaling.
+
+## 3. Between-state vs within-state variance decomposition
+
+If the between-state variance is much larger than the within-state variance for
+key statistics, pooling across states with only a fixed intercept is
+insufficient.
+
+```{r variance-decomp}
+stats_long <- melt(
+  net_stats[, .(net_id, state, density, gwb1dsp, n_nurses, n_diabetes_pat,
+                b1starmix_diabetes_no)],
+  id.vars = c("net_id", "state"),
+  variable.name = "statistic"
+)
+
+# ICC: between-state variance / total variance
+icc_tab <- stats_long[!is.na(value), {
+  grand_mean <- mean(value)
+  state_means <- tapply(value, state, mean)
+  
+  # ANOVA-style decomposition
+  ss_between <- sum(tapply(value, state, function(x) length(x) * (mean(x) - grand_mean)^2))
+  ss_within  <- sum(tapply(value, state, function(x) sum((x - mean(x))^2)))
+  ss_total   <- ss_between + ss_within
+  
+  .(
+    ICC = round(ss_between / ss_total, 3),
+    CV_between = round(sd(state_means) / mean(state_means), 3),
+    CV_within  = round(mean(tapply(value, state, function(x) sd(x) / abs(mean(x)))), 3)
+  )
+}, by = statistic]
+
+knitr::kable(icc_tab,
+  caption = "ICC and CV decomposition by statistic.
+             ICC > 0.2 suggests state-level effects may be insufficient."
+)
+```
+
+> **Interpretation.** ICC is the fraction of total variance explained by
+> state membership. For `density` and `gwb1dsp` — the two statistics most
+> directly governed by the `edges` and `gwb1dsp` model terms — an ICC above
+> 0.20 means the state fixed effect is doing meaningful work, but the
+> *remaining* 80%+ of variance is within-state and unaccounted for. The
+> `CV_within` column reveals whether that residual variation is systematic:
+> a high within-state CV means networks in the same state are fundamentally
+> different from each other, and no linear fixed effect will absorb that.
+> If `b1starmix_diabetes_no` has a very low ICC, the variability is spread
+> uniformly across all states — consistent with it being size-driven rather
+> than geography-driven.
+
+## 4. Regression: does the pooled model assumption hold?
+
+We use a linear regression to check whether key statistics are well-explained
+by pooled predictors (log-size, state), or whether there are strong interaction
+effects (state × size) that violate the pooled model assumption.
+
+```{r lm-density}
+# Can we predict density from log(n) and state?
+fit_density <- lm(density ~ log(n) + state, data = net_stats)
+fit_density_int <- lm(density ~ log(n) * state, data = net_stats)
+
+cat("=== Density ~ log(n) + state ===\n")
+screenreg(list(fit_density, fit_density_int),
+  custom.model.names = c("Additive", "Interaction"),
+  single.row = TRUE, digits = 3
+)
+
+cat(sprintf(
+  "\nLikelihood ratio test p-value (interaction vs additive): %.4f\n",
+  anova(fit_density, fit_density_int)$`Pr(>F)`[2]
+))
+```
+
+> **Interpretation.** This is the key test for the *pooled model assumption*.
+> A significant LRT (p < 0.05) means that the size–density relationship
+> differs across states: some states show steeper density declines with
+> increasing size than others, and a single shared log(n) coefficient will
+> be systematically wrong for several of them. This is the regression-level
+> analog of the significant state terms in the MCMC output. If the interaction
+> is significant, the next ERGM to try is
+> `N(~edges, ~I(log(n_tot) - mean(log(n_tot))) * facility_state)`.
+
+```{r lm-gwb1dsp}
+# Can we predict gwb1dsp from log(n) and state?
+fit_gw <- lm(gwb1dsp ~ log(n) + state, data = net_stats)
+fit_gw_int <- lm(gwb1dsp ~ log(n) * state, data = net_stats)
+
+cat("=== gwb1dsp ~ log(n) + state ===\n")
+screenreg(list(fit_gw, fit_gw_int),
+  custom.model.names = c("Additive", "Interaction"),
+  single.row = TRUE, digits = 3
+)
+
+cat(sprintf(
+  "\nLikelihood ratio test p-value: %.4f\n",
+  anova(fit_gw, fit_gw_int)$`Pr(>F)`[2]
+))
+```
+
+> **Interpretation.** `gwb1dsp` measures how concentrated the HCP-sharing
+> structure is. If the size–gwb1dsp relationship varies by state, the shared
+> `gwb1dsp` coefficient cannot capture the correct structural tendency in any
+> individual state. An R² that is notably higher for the interaction model than
+> the additive one, combined with a significant LRT, suggests that gwb1dsp
+> needs to be allowed to scale differently with network size per state. One
+> option is to use `N(~gwb1dsp(0.2, fixed=TRUE), ~log(n_tot) + facility_state)`
+> to allow the decay to be modulated by both size and location.
+
+```{r lm-ties}
+# Ties ~ n_hcp * n_pat (expected under random bipartite): check linearity
+fit_ties <- lm(n_ties ~ I(n_hcp * n_pat) + state, data = net_stats)
+fit_ties_int <- lm(n_ties ~ I(n_hcp * n_pat) * state, data = net_stats)
+
+cat("=== n_ties ~ n_hcp*n_pat + state ===\n")
+screenreg(list(fit_ties, fit_ties_int),
+  custom.model.names = c("Additive", "Interaction"),
+  single.row = TRUE, digits = 3
+)
+
+cat(sprintf(
+  "\nLikelihood ratio test p-value: %.4f\n",
+  anova(fit_ties, fit_ties_int)$`Pr(>F)`[2]
+))
+```
+
+> **Interpretation.** Under a purely random bipartite graph, ties would be
+> proportional to n_hcp × n_pat with the same rate constant across all
+> networks. A significant interaction here means that contact rate (edges per
+> HCP–patient pair) differs by state — e.g., NY facilities may have
+> systematically denser contact patterns than OR ones for the same number of
+> actors. This is a substantive finding: it means the `edges` term in the
+> ERGM does not have a universal scale, and the MCMC chain must compensate
+> by drifting in the state-specific directions observed in the diagnostics.
+
+```{r lm-residuals-plot}
+#| fig-height: 5
+# Residuals from additive density model — are they correlated with size?
+net_stats[, resid_density := residuals(fit_density)]
+net_stats[, fitted_density := fitted(fit_density)]
+
+p_resid1 <- ggplot(net_stats, aes(x = fitted_density, y = resid_density,
+                                   color = state)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_smooth(method = "loess", se = FALSE, color = "black", linewidth = 0.5) +
+  labs(
+    x = "Fitted density",
+    y = "Residual",
+    title = "Residuals: density ~ log(n) + state",
+    subtitle = "Nonzero trend → size-by-state interaction may be needed"
+  ) +
+  theme_minimal()
+
+p_resid2 <- ggplot(net_stats, aes(x = n, y = resid_density, color = state)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_smooth(method = "loess", se = FALSE, color = "black", linewidth = 0.5) +
+  facet_wrap(~state, scales = "free_x", ncol = 3) +
+  labs(
+    x = "Network size",
+    y = "Density residual",
+    title = "Density residuals by state",
+    subtitle = "Systematic size-density relationship within states?"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+p_resid1 / p_resid2
+```
+
+> **Interpretation.** The top panel (fitted vs residual) should show a
+> horizontal cloud around zero. Any systematic curve (U-shape or funnel)
+> means the additive model is wrong — the log(n) effect is non-linear or
+> interacts with density in a way the model misses. The bottom panel
+> (by state) is the most actionable: states where residuals slope upward
+> with size need a *stronger* log(n) correction (the current coefficient is
+> too small for them), and states where residuals slope downward need a
+> weaker one. These are exactly the states whose `edges` terms are
+> significant in the MCMC output.
+
+## 5. Facility-level fixed effects: is it feasible?
+
+The current model uses state as a fixed effect on `edges`. An alternative is to
+use facility (network) ID directly — this fully absorbs cross-network
+heterogeneity but may cost too many degrees of freedom.
+
+```{r facility-fe-feasibility}
+# How many networks per state?
+knitr::kable(
+  net_stats[, .(N_networks = .N,
+                mean_n     = round(mean(n), 1),
+                range_n    = paste0("[", min(n), ",", max(n), "]")),
+            by = state][order(state)],
+  caption = "Networks per state. Using Fac_Name fixed effects adds one parameter per unique facility."
+)
+
+# Full facility FE model for density (as a regression proxy)
+fit_facility <- lm(density ~ log(n) + factor(fac_name), data = net_stats)
+fit_state    <- lm(density ~ log(n) + state,           data = net_stats)
+
+cat(sprintf(
+  "R² with state FE:    %.3f  (df used: %d)\n",
+  summary(fit_state)$r.squared, length(coef(fit_state))
+))
+cat(sprintf(
+  "R² with facility FE: %.3f  (df used: %d)\n",
+  summary(fit_facility)$r.squared, length(coef(fit_facility))
+))
+
+cat(sprintf(
+  "\nF-test (facility FE vs state FE): p = %.4f\n",
+  anova(fit_state, fit_facility)$`Pr(>F)`[2]
+))
+```
+
+> **Interpretation.** The R² jump from state FE to facility FE (`Fac_Name`)
+> quantifies how much within-state heterogeneity exists. If ΔR² > 0.15
+> and the F-test is significant, there is meaningful facility-level variation
+> beyond what state captures — consistent with different care cultures,
+> staffing ratios, and patient compositions. However, with 93 networks, a
+> full facility FE in the ERGM consumes 92 parameters just for the intercept
+> shift, leaving almost no residual degrees of freedom for structural terms
+> like `gwb1dsp` or `b2factor`. If the facility FE R² is much higher, a
+> pragmatic middle ground is to use facility *size quartile* or cluster
+> within state as a coarser fixed effect.
+
+```{r facility-fe-gwb1dsp}
+# Same for gwb1dsp
+fit_gw_fac  <- lm(gwb1dsp ~ log(n) + factor(fac_name), data = net_stats)
+fit_gw_st   <- lm(gwb1dsp ~ log(n) + state,          data = net_stats)
+
+cat(sprintf(
+  "gwb1dsp R² with state FE:    %.3f\n", summary(fit_gw_st)$r.squared
+))
+cat(sprintf(
+  "gwb1dsp R² with facility FE: %.3f\n", summary(fit_gw_fac)$r.squared
+))
+```
+
+> **Interpretation.** If the `gwb1dsp` R² increases substantially with
+> facility FEs relative to state FEs, it confirms that HCP-sharing patterns
+> are largely facility-idiosyncratic. This has an important implication for
+> the ERGM: the fixed `gwb1dsp(0.2)` coefficient represents an *average*
+> sharing tendency that may be far from the truth for many individual
+> facilities, producing the persistent MCMC discrepancy.
+
+## 6. Per-state ERGM feasibility check
+
+A quick heuristic: fit the simplest model (`edges ~ log(n)`) per state and
+check whether those models converge. This tells us whether we should run
+separate per-state models.
+
+```{r per-state-ergm}
+#| message: false
+#| warning: false
+#| results: hide
+states <- unique(net_stats$state)
+
+per_state_results <- lapply(states, \(s) {
+  nets_s <- networks[net_stats[state == s, net_id]]
+  
+  # rename net_ids so they are contiguous
+  nets_s <- lapply(seq_along(nets_s), \(i) {
+    n <- nets_s[[i]]
+    n %v% "net_id" <- i
+    n
+  })
+  
+  md <- set_ergm(nets = nets_s)
+  
+  tryCatch({
+    fit <- with(md, ergm(
+      Networks(nets) ~
+        N(~edges, ~I(log(n_tot) - mean(log(n_tot)))) +
+        offset(b1degree(0)) + offset(b2degree(0)),
+      offset.coef = c(-Inf, -Inf),
+      control = control.ergm(seed = 12345)
+    ))
+    list(
+      state = s,
+      coef  = coef(fit),
+      aic   = AIC(fit),
+      bic   = BIC(fit),
+      n_nets = length(nets_s),
+      converged = TRUE,
+      fit = fit
+    )
+  }, error = \(e) {
+    list(state = s, converged = FALSE, error = conditionMessage(e),
+         n_nets = length(nets_s))
+  })
+})
+names(per_state_results) <- states
+```
+
+```{r per-state-summary}
+per_state_tab <- lapply(per_state_results, \(r) {
+  data.table(
+    state     = r$state,
+    n_nets    = r$n_nets,
+    converged = r$converged,
+    coef_edges = if (r$converged) round(r$coef["N(1)~edges"], 3) else NA,
+    coef_logn  = if (r$converged)
+      round(r$coef["N(I(log(n_tot) - mean(log(n_tot))))~edges"], 3) else NA,
+    aic = if (r$converged) round(r$aic, 1) else NA
+  )
+}) |> rbindlist()
+
+knitr::kable(per_state_tab,
+  caption = "Per-state simple ERGM (edges ~ log(n)) results.
+             Compare edge coefficients across states — large variation
+             suggests the pooled model is misspecified."
+)
+```
+
+> **Interpretation.** Focus on the `coef_edges` column. In the pooled model
+> this is a single shared value; here it is estimated separately per state.
+> A range spanning more than ~1.5 units is strong evidence that a pooled
+> intercept is misspecified. States with positive `coef_logn` (density
+> *increases* with size) are particularly unusual and may indicate structural
+> differences in how those facilities operate. MD (6 networks) should be
+> treated with caution — its estimate will have large uncertainty and may
+> be driven by a single outlying facility.
+
+```{r per-state-coef-plot}
+#| fig-height: 4
+if (any(per_state_tab$converged)) {
+  ggplot(per_state_tab[converged == TRUE],
+      aes(x = reorder(state, coef_edges), y = coef_edges)) +
+    geom_point(size = 3) +
+    geom_errorbar(aes(ymin = coef_edges - 0.5, ymax = coef_edges + 0.5),
+                  width = 0.2, alpha = 0) +  # placeholder, replace with SE
+    geom_hline(yintercept = mean(per_state_tab$coef_edges, na.rm = TRUE),
+               linetype = "dashed", color = "red") +
+    labs(
+      x = "State",
+      y = "edges coefficient",
+      title = "Per-state edges coefficient (edges ~ log(n))",
+      subtitle = "Red dashed = pooled-model value. Spread → pooling is problematic."
+    ) +
+    theme_minimal()
+}
+```
+
+> **Interpretation.** Points far above or below the red dashed mean line are
+> the states whose assumed edge coefficient is most wrong in the pooled model.
+> Cross-reference with the MCMC output: OR, GA, and NY all showed significant
+> individual test statistics (p < 0.05). If those three states also show the
+> largest deviations in this plot, it closes the causal loop — the convergence
+> failure is directly traceable to those facilities pulling the shared
+> coefficient away from its optimal value for the remaining states.
+
+Outlier networks (extreme density, size, or care complexity) are likely driving
+the convergence failure. We flag them using Mahalanobis distance on the key
+statistics.
+
+```{r outliers}
+# Use key statistics: density, n_hcp, proportion diabetic patients
+stats_mat <- net_stats[, .(
+  log_n     = log(n),
+  density,
+  prop_diab = n_diabetes_pat / n_pat,
+  prop_vent = n_vent_pat     / n_pat,
+  gwb1dsp
+)]
+stats_mat <- na.omit(stats_mat)
+ids_used <- net_stats[!is.na(gwb1dsp), net_id]
+
+mah <- mahalanobis(
+  stats_mat,
+  center = colMeans(stats_mat),
+  cov    = cov(stats_mat)
+)
+
+# Chi-squared threshold (5 df, p < 0.01)
+threshold <- qchisq(0.99, df = ncol(stats_mat))
+
+outlier_tab <- data.table(
+  net_id     = ids_used,
+  state      = net_stats[!is.na(gwb1dsp), state],
+  mah_dist   = round(mah, 2),
+  is_outlier = mah > threshold
+)[order(-mah_dist)]
+
+cat(sprintf(
+  "Outlier networks (Mahalanobis distance > %.2f at p<0.01):\n", threshold
+))
+print(outlier_tab[is_outlier == TRUE])
+
+ggplot(outlier_tab, aes(x = mah_dist, fill = state)) +
+  geom_histogram(bins = 25) +
+  geom_vline(xintercept = threshold, linetype = "dashed", color = "red") +
+  labs(
+    x = "Mahalanobis distance",
+    title = "Outlier detection across networks",
+    subtitle = "Red dashed = 99th percentile of χ²(5)"
+  ) +
+  theme_minimal()
+```
+
+> **Interpretation.** Networks printed above the threshold are multivariate
+> outliers: their *combination* of size, density, patient care complexity, and
+> HCP sharing is unusual even accounting for state. Network 57 (the outlier
+> previously excluded in `res2_b2factor_terms_no_md`) should appear prominently
+> here. Additional outliers — particularly those in OR, GA, or NY — are likely
+> contributing to those states' significant MCMC test statistics. Each flagged
+> network should be inspected individually: is it an unusually large facility?
+> A very high proportion of ventilated or diabetic patients? Removing the
+> worst offenders before refitting is a legitimate sensitivity analysis.
+
+```{r findings-table}
+#| echo: false
+# Print a concise diagnostic summary
+cat("
+DIAGNOSTIC SUMMARY
+==================
+
+1. b1starmix(2, 'diabetes') instability:
+   - Diabetes is so prevalent that the statistic scales as O(n_hcp^2).
+   - Correlation with n_hcp^2 is very high → near-collinearity with edges.
+   - RECOMMENDATION: Drop b1starmix(2,'diabetes') or replace with a
+     centered/scaled version. Alternatively, use b2factor('diabetes') only,
+     which captures prevalence without the quadratic scaling.
+
+2. State-level fixed effects may be insufficient:
+   - Check ICC values above. If ICC > 0.2 for gwb1dsp or density, the
+     state-level FE does not adequately capture between-network heterogeneity.
+   - RECOMMENDATION: Evaluate a facility-level FE using N(~edges, ~Fac_Name)
+     as a robustness check, accepting the loss of parsimony.
+
+3. Separate per-state models:
+   - If state-specific edge coefficients differ substantially (see Section 6),
+     running separate ERGMs per state (at least as a sensitivity analysis)
+     is warranted.
+   - States with few networks (MD: 6) cannot support complex models. Consider
+     excluding MD or pooling it with a neighbouring state.
+
+4. Convergence strategy:
+   - Start from the converging model (res2_b2factor_terms_no_md) and add
+     terms one at a time with mcmc.diagnostics() after each addition.
+   - For b1starmix terms with large variance, consider using SA
+     (Stochastic-Approximation) with longer burn-in, or use ergm's
+     MCMLE with a smaller MCMC.samplesize and larger MCMC.interval.
+   - Alternatively, reparameterize b1starmix(2,'diabetes') by dividing the
+     statistic by the number of networks in the subset to reduce scale.
+")
+```
+
+## 9. Correlation heat-map of key statistics
+
+High pairwise correlations between ERGM statistics indicate potential
+collinearity that destabilizes estimation.
+
+```{r correlation-heatmap}
+#| fig-height: 6
+# Compute correlation matrix of network-level statistics
+cor_vars <- net_stats[, .(
+  edges       = n_ties,
+  log_n       = log(n),
+  density,
+  gwb1dsp,
+  n_nurses,
+  n_diabetes_pat,
+  n_vent_pat,
+  n_wound_pat,
+  b1starmix_diab_no = b1starmix_diabetes_no
+)]
+
+cor_mat <- cor(cor_vars, use = "pairwise.complete.obs")
+
+# Melt for ggplot (no reshape2 dependency)
+cor_melt <- data.table(
+  Var1 = rownames(cor_mat)[row(cor_mat)],
+  Var2 = colnames(cor_mat)[col(cor_mat)],
+  r    = as.vector(cor_mat)
+)
+
+ggplot(cor_melt, aes(x = Var1, y = Var2, fill = r)) +
+  geom_tile() +
+  geom_text(aes(label = round(r, 2)), size = 3) +
+  scale_fill_gradient2(
+    low = "steelblue", mid = "white", high = "tomato",
+    midpoint = 0, limits = c(-1, 1)
+  ) +
+  labs(
+    title = "Correlation between key ERGM statistics",
+    subtitle = "Values close to ±1 → collinearity → convergence problems",
+    fill = "Pearson r"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+> **Interpretation.** The heatmap summarises all collinearity risks in one
+> view. The critical cells to check are `b1starmix_diab_no` vs `edges`,
+> `b1starmix_diab_no` vs `log_n`, and `gwb1dsp` vs `edges`. Values of
+> |r| > 0.85 between any two included ERGM statistics are a near-guarantee
+> of degeneracy or slow mixing. The `n_diabetes_pat` row also reveals whether
+> disease burden is correlated with network size — if so, any size-controlling
+> term will partially absorb the diabetes effect, making it even harder to
+> estimate a separate `b1starmix(2,'diabetes')` coefficient.
+
+## 10. Summary table: MCMC failure attribution
+
+```{r mcmc-failure-table}
+#| echo: false
+mcmc_tab <- data.table(
+  Term = c(
+    "b1starmix(2,'diabetes').No",
+    "b1starmix(2,'ventilator').No",
+    "gwb1dsp(0.2)",
+    "N(facility_stateNY/GA/OR)~edges",
+    "N(I(log(n_tot) - mean(...)))~edges"
+  ),
+  `MCMC SD` = c(752, 300, 44, "34–51", 40),
+  `P-val` = c("4.2e-4", "n.s.", "0.032", "0.019–0.04", "9.1e-5"),
+  `Likely cause` = c(
+    "Quadratic scaling with n_hcp; near-collinear with edges",
+    "Sparse term: few networks, low counts, high variance",
+    "High cross-correlation with edges (r=0.77)",
+    "Heterogeneous size distribution within state",
+    "Size-to-edges mapping varies by state (interaction needed)"
+  )
+)
+
+knitr::kable(mcmc_tab,
+  caption = "Attribution of MCMC convergence failures to specific model terms"
+)
+```
+
+> **Overall conclusion.** The convergence failure is multi-causal, but the
+> primary culprits are (1) `b1starmix(2,'diabetes')`, which is effectively
+> collinear with the `edges` term at this prevalence level, and (2)
+> insufficient flexibility in the `edges` parameterisation to capture
+> within-state heterogeneity. The recommended path forward is:
+>
+> 1. **Drop** `b1starmix(2,'diabetes')` entirely; replace with
+>    `b2factor('diabetes')` if the diabetes-clustering hypothesis is
+>    substantively important.
+> 2. **Add a size × state interaction** on `edges`:
+>    `N(~edges, ~I(log(n_tot) - mean(log(n_tot))) * facility_state)`.
+> 3. **Evaluate facility-level FEs** (`Fac_Name`) in a simpler model to
+>    quantify residual within-state heterogeneity.
+> 4. **Increase MCMC effort** (longer burn-in, larger thinning interval)
+>    for any model that still includes `b1starmix(2,'ventilator')`, given
+>    its sparse support.
