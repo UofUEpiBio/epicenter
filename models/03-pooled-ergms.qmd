@@ -814,7 +814,7 @@ mcmc.diagnostics(res4_gwdsp_var_bnodematch)
 ```{r}
 with_restore("res5_original", model_data, ergm(
   Networks(nets) ~
-    N(~edges, ~ I(log(n) - mean(log(n))))+
+    N(~edges, ~ I(log(n)))+
     # Using "Other" as the reference level
     gwb1dsp(0.75, fixed = TRUE) +
     # Nodal effects
@@ -845,17 +845,34 @@ with_restore("res5_original", model_data, ergm(
       )
   )
 ))
+
+tabulator(
+  list(
+    best_model,
+    res4_gwdsp_var_bnodematch_no_logres,
+    res4_gwdsp_var_bnodematch,
+    res5_original
+  ),
+  single.row = TRUE
+)
 ```
 
-Evaluate goodness of fit.
+Saving the results
+
 ```{r}  
 #| label: gof
 #| eval: true
 #| cache: true
 #| message: false
 #| warning: false
-g=gofN(res12_93) # saved as gofN_model12_93
-summary(g)
-saveRDS(g, 'data/gofN_model12_93.rds')
+saveRDS(
+  list(
+    bfactors = best_model,
+    gwdsp_no_log_patients = res4_gwdsp_var_bnodematch_no_logres,
+    gwdsp_with_log_patients = res4_gwdsp_var_bnodematch,
+    original = res5_original
+  ),
+  "models/03-pooled-ergms-final-results.rds"
+)
 ```
 
