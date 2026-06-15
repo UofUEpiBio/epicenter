@@ -17,15 +17,13 @@ library(texreg)
 #' - `facility_state`: Character vector with facilities' states. 
 set_ergm <- function(
   nets,
-  boot = FALSE
+  idx = NULL
   ) {
 
-  idx <- seq_along(nets)
-  if (boot) {
-    # Sampling the networks
-    idx <- sample(idx, replace = TRUE) |> sort()
-    nets <- nets[idx]
-  }
+  if (is.null(idx))
+    idx <- seq_along(nets)
+  
+  nets <- nets[idx]
 
   # Updating category of PA/NP in type to "Nurse" (only 1)
   # and Physician with "Other" (only 3)
@@ -131,6 +129,20 @@ tabulator <- function(x, ..., tmethod = texreg::screenreg) {
     length(n$newnetwork$gal$.subnetcache$.NetworkID)
   }))
 
+  # Check if method was MCMLE
+  mcmc_results <- lapply(x, \(n) {
+    if (n$control$main.method == "MCMLE") {
+      list(
+        "N steps" = prettyNum(summary(n$sample)$end, big.mark = ","),
+        "Joint Geweke" = suppressWarnings(ergm::geweke.diag.mv(n$sample)$p.value[1]) |> unname()
+      )
+    } else
+      list("N steps" = 0, "Joint Geweke" = 0)
+  })
+
+  nnets$"N steps" <- sapply(mcmc_results, \(y) y[["N steps"]])
+  nnets$"Joint Geweke" <- sapply(mcmc_results, \(y) y[["Joint Geweke"]])
+
   tmethod(
     x,
     custom.coef.map = maps,
@@ -172,8 +184,10 @@ with_restore <- function(name, data, ..., path = "models/03-pooled-ergms-rds") {
   writeLines(expr_str, tmp)
   call_hash <- unname(tools::md5sum(tmp))
 
+  fpath <- file.path(path, paste0(name, ".rds"))
+
   # Registry check: error if the name appears again with different code.
-  if (exists(name, envir = .with_restore_registry, inherits = FALSE)) {
+  if (file.exists(fpath) && exists(name, envir = .with_restore_registry, inherits = FALSE)) {
     prev_hash <- get(name, envir = .with_restore_registry, inherits = FALSE)
     if (!identical(prev_hash, call_hash)) {
       stop(
@@ -186,7 +200,7 @@ with_restore <- function(name, data, ..., path = "models/03-pooled-ergms-rds") {
     assign(name, call_hash, envir = .with_restore_registry)
   }
 
-  fpath <- file.path(path, paste0(name, ".rds"))
+  
   if (file.exists(fpath)) {
     message("Loading '", name, "' from cache.")
     res <- readRDS(fpath)
@@ -197,3 +211,53 @@ with_restore <- function(name, data, ..., path = "models/03-pooled-ergms-rds") {
   assign(name, res, envir = parent.frame())
   invisible(res)
 }
+
+# # Bootstrapping function of the ERGM model
+# boot_ergm <- function(
+#   networks,
+#   ...,
+#   nboot = 100,
+#   cl = NULL
+# ) {
+
+#   # Preparing the boot
+#   nnets <- length(data)
+
+#   # Generating the indices for the bootstrapping
+#   boot_indices <- sample.int(nnets, nboot * nnets, replace = TRUE) |>
+#     matrix(ncol = nboot, nrow = nnets)
+
+#   fitfun <- function(idx, networks,...) {
+
+#     set_ergm(nets = networks)
+
+#     res <- with(dat, tryCatch(ergm::ergm(...), error = function(e) e))
+
+#     if (inherits(res, "error"))
+#       return(res)
+
+#     coef(res)
+#   }
+
+#   # Passing the data to the cl
+#   if (!is.null(cl)) {
+
+#     # Exporting the needed data for the cluster
+#     parallel::clusterExport(
+#       cl, varlist = c(
+#         "boot_indices", "dat", "fitfun", "networks"
+#         ),
+#       envir = environment()
+#     )
+
+#     parallel::parLapply(
+#       cl,
+#       seq_len(nboot),
+#       fun = \(i) {
+#         fitfun()
+#       }
+#       )
+    
+#   }
+
+# }

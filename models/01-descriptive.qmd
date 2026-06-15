@@ -25,15 +25,17 @@ features <- lapply(seq_along(networks), function(i) {
     bedridden = net %v% "bedridden",
     ventilator = net %v% "ventilator",
     mdro = net %v% "mdro",
-    wheelchair = net %v% "wheelchair"
+    wheelchair = net %v% "wheelchair",
+    degree = sna::degree(net),
+    state = net %v% "state"
   )
 }) |> rbindlist()
 
 # Excluding healtcare providers
-features <- features[is_actor == FALSE]
+features_actor <- features[is_actor == FALSE]
 
 # Checking if individuals will have more than one condition
-features[, n_conditions := 
+features_actor[, n_conditions := 
   (diabetes == "Yes") +
   (dialysis == "Yes") +
   (wound_care == "Yes") +
@@ -43,12 +45,55 @@ features[, n_conditions :=
   (wheelchair == "Yes")
   ]
 
-features[, table(n_conditions)] |>
+features_actor[, table(n_conditions)] |>
   knitr::kable()
 ```
 
-So individuals may have up to 6 different conditions. We can also visualize this in a single figure showing the distribution of patients with each condition using ggridges.
+So individuals may have up to 6 different conditions. We can also visualize this in a single figure showing the distribution of patients with each condition using ggridges. Looking into the degree distribution by type of node.
 
+```{r}
+#| label: degree-distribution-by-node-type
+features[, n := .N, by = net_id]
+features[, net_id := factor(net_id, levels = unique(net_id))]
+setorder(features, state, -n)
+features |>
+  ggplot(aes(x = degree, fill = is_actor, y = net_id)) +
+  geom_density_ridges() +
+  facet_wrap(~state, scales = "free_y") +
+  # Removing the y-axis ticks
+  theme(axis.ticks.y = element_blank())
+```
+
+And overall
+
+```{r}
+#| label: degree-distribution-overall
+features |>
+  ggplot(aes(x = degree, y = state)) +
+  geom_density_ridges(
+    jittered_points = TRUE, position = "raincloud",
+    alpha = 0.9, scale = 0.9
+  ) +
+  theme_minimal()
+```
+
+Checking if the degree distribution changes across different states.
+
+```{r}
+#| label: degree-distribution-by-state
+features[, n_hcp := sum(is_actor == TRUE), by = net_id]
+features[, n_patients := sum(is_actor == FALSE), by = net_id]
+lm(
+  degree ~
+    n_hcp + n_patients*state + is_actor +
+    I(n_patients ^ 2),
+  data = features
+) |>
+  texreg::screenreg(
+    single.row = TRUE, 
+    custom.model.names = "Degree"
+    )
+```
 
 ```{r}
 library(ggridges)
@@ -75,7 +120,11 @@ features_long |>
     alpha = 0.7,
     jittered_points = TRUE, position = "raincloud"
     ) +
-  labs(x = "Number of Patients", y = "Network", title = "Distribution of Conditions by Network") +
+  labs(
+    x = "Number of Patients",
+    y = "Network",
+    title = "Distribution of Conditions by Network"
+    ) +
   theme_minimal()
 ```
 
