@@ -3,6 +3,7 @@ library(ergm.multi)
 library(ggplot2)
 library(ggridges)
 library(texreg)
+library(parallel)
 
 #' Function to configure the ERGM model for the paper
 #' @param nets A list of [network] objects.
@@ -23,7 +24,7 @@ set_ergm <- function(
   if (is.null(idx))
     idx <- seq_along(nets)
   
-  nets <- nets[idx]
+  nets <- nets[idx] |> unname()
 
   # Updating category of PA/NP in type to "Nurse" (only 1)
   # and Physician with "Other" (only 3)
@@ -212,52 +213,131 @@ with_restore <- function(name, data, ..., path = "models/03-pooled-ergms-rds") {
   invisible(res)
 }
 
-# # Bootstrapping function of the ERGM model
-# boot_ergm <- function(
-#   networks,
-#   ...,
-#   nboot = 100,
-#   cl = NULL
-# ) {
+#' Restore a cached result
+#' @param i The index of the cached result to restore.
+#' @param cache The directory where the cached results are stored.
+#' @return The cached result, or NULL if it doesn't exist.
+restore_cache <- function(i, cache = NULL) {
 
-#   # Preparing the boot
-#   nnets <- length(data)
+  if (!length(cache))
+    return(NULL)
 
-#   # Generating the indices for the bootstrapping
-#   boot_indices <- sample.int(nnets, nboot * nnets, replace = TRUE) |>
-#     matrix(ncol = nboot, nrow = nnets)
+  # Checking the filepath exists
+  if (!dir.exists(cache)) {
+    stop("Cache directory does not exist. To make things cleaner, we require the user create the directory first.")
+  }
 
-#   fitfun <- function(idx, networks,...) {
+  fn <- file.path(cache, sprintf("%04i.rds", i))
+  
+  if (file.exists(fn)) {
+    message("Loading cached result ", fn, ".")
+    return(readRDS(fn))
+  }
+  NULL
+}
 
-#     set_ergm(nets = networks)
+#' Save a result to the cache
+#' @param i The index of the cached result to save.
+#' @param res The result to save.
+#' @param cache The directory where the cached results are stored.
+save_cache <- function(i, res, cache = NULL) {
 
-#     res <- with(dat, tryCatch(ergm::ergm(...), error = function(e) e))
+  if (!length(cache))
+    return(invisible(NULL))
 
-#     if (inherits(res, "error"))
-#       return(res)
+  fn <- file.path(cache, sprintf("%04i.rds", i))
+  saveRDS(res, fn)
+}
 
-#     coef(res)
-#   }
+#' Run a function with caching
+#' @param i The index of the cached result to use.
+#' @param cache The directory where the cached results are stored.
+#' @param ... The arguments to pass to the function.
+#' @return The result of the function, either from the cache or by running it.
+run_with_cache <- function(i, cache, ...) {
 
-#   # Passing the data to the cl
-#   if (!is.null(cl)) {
+  res <- restore_cache(i, cache)
 
-#     # Exporting the needed data for the cluster
-#     parallel::clusterExport(
-#       cl, varlist = c(
-#         "boot_indices", "dat", "fitfun", "networks"
-#         ),
-#       envir = environment()
-#     )
+  if (!length(res)) {
+    res <- eval(...)
+    save_cache(i, res, cache)
+  }
 
-#     parallel::parLapply(
-#       cl,
-#       seq_len(nboot),
-#       fun = \(i) {
-#         fitfun()
-#       }
-#       )
+  res
+
+}
+
+# Bootstrapping function of the ERGM model
+boot_ergm <- function(
+  networks,
+  ergm_formula,
+  ...,
+  nboot = 100,
+  cl = NULL,
+  cache = NULL
+) {
+
+  # Preparing the boot
+  nnets <- length(networks)
+
+  # Generating the indices for the bootstrapping
+  boot_indices <- sample.int(nnets, nboot * nnets, replace = TRUE) |>
+    matrix(ncol = nboot, nrow = nnets)
+
+  fitfun <- function(idx, networks,...) {
+
+    # Preparing the networks
+    dat <- set_ergm(nets = networks, idx = idx)
+
+    # Unpack all dat elements into the local frame so the formula
+    # environment can resolve Networks(nets) and any other objects.
+    list2env(dat, envir = environment())
+
+    # Ensuring it runs locally
+    environment(ergm_formula) <- environment()
+
+    res <- tryCatch(
+      with(dat, ergm::ergm(ergm_formula, ...)),
+      error = function(e) e)
+
+    if (inherits(res, "error"))
+      return(res)
+
+    coef(res)
+  }
+
+  # Passing the data to the cl
+  if (!is.null(cl)) {
+
+    # Exporting the needed data for the cluster
+    parallel::clusterExport(
+      cl, varlist = c(
+        "boot_indices", "fitfun", "networks", "ergm_formula",
+        "restore_cache", "save_cache", "cache", "run_with_cache"
+        ),
+      envir = environment()
+    )
+
+    parallel::parLapply(
+      cl,
+      seq_len(nboot),
+      fun = \(i, ...) {
+        run_with_cache(
+          i, cache,
+          fitfun(boot_indices[, i], networks, ...)
+          )
+      },
+      ...
+    )
     
-#   }
+  } else {
+    lapply(seq_len(nboot), \(i, ...) 
+      run_with_cache(
+        i, cache,
+        fitfun(boot_indices[, i], networks, ...)
+      ),
+    ...
+    )
+  }
 
-# }
+}
