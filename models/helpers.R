@@ -284,6 +284,10 @@ boot_ergm <- function(
   boot_indices <- sample.int(nnets, nboot * nnets, replace = TRUE) |>
     matrix(ncol = nboot, nrow = nnets)
 
+  # Sometimes, the execution order can make things off,
+  # so we will shuffle the execution order
+  boot_order <- sample(seq_len(nboot), nboot)
+
   fitfun <- function(idx, networks,...) {
 
     # Preparing the networks
@@ -318,9 +322,9 @@ boot_ergm <- function(
       envir = environment()
     )
 
-    parallel::parLapply(
+    parallel::parLapplyLB(
       cl,
-      seq_len(nboot),
+      boot_order,
       fun = \(i, ...) {
         run_with_cache(
           i, cache,
@@ -331,7 +335,7 @@ boot_ergm <- function(
     )
     
   } else {
-    lapply(seq_len(nboot), \(i, ...) 
+    lapply(boot_order, \(i, ...) 
       run_with_cache(
         i, cache,
         fitfun(boot_indices[, i], networks, ...)
