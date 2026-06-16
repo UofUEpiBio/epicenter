@@ -28,41 +28,12 @@ load('data/network93_f2.RData')
 fits <- readRDS("models/03-pooled-ergms-final-results.rds")
 ```
 
-## Testing the bootstrapping function
-
-```{r}
-cl <- makeForkCluster(6)
-set.seed(333)
-ans <- boot_ergm(
-  networks = networks,
-  ergm_formula =
-    Networks(nets) ~ edges,
-  nboot = 20,
-  cl = cl,
-  cache = "models/04-boot-ergms-cache"
-)
-stopCluster(cl)
-```
-
-```{r}
-library(ggplot2)
-ans <- do.call(rbind, ans)
-ggplot(ans, aes(x = edges)) +
-  geom_histogram(bins = 30)
-```
-
-We now need to flush the memory
-
-```{r}
-file.remove(list.files("models/04-boot-ergms-cache", pattern = ".rds", full.names = TRUE))
-```
-
 ## Evaluating in the final model
 
 
 ```{r}
-# Naive 2 cluster (for now)
-cl <- parallel::makeForkCluster(2)
+# Naive 9 cluster (for now)
+cl <- parallel::makeForkCluster(30)
 
 set.seed(333)
 ans <- boot_ergm(
@@ -95,10 +66,44 @@ ans <- boot_ergm(
     )
   ),
   offset.coef = c(-Inf, -Inf),
-  nboot = 20,
+  nboot = 200,
   cl = cl,
   cache = "models/04-boot-ergms-cache"
 )
 parallel::stopCluster(cl)
 
 ```
+
+## Processing the bootstrap results
+
+
+```{r}
+# Listing all the bootstrap results
+boot_res <- list.files(
+  "models/04-boot-ergms-cache",
+  pattern = "\\.rds$",
+  full.names = TRUE
+  ) |> 
+  lapply(readRDS) |>
+  do.call(what = rbind)
+
+# Generating a regression table
+boot_res_mean <- apply(boot_res, 2, mean, na.rm = TRUE)
+boot_res_sd <- apply(boot_res, 2, sd, na.rm = TRUE)
+
+# Computing the pvalues
+pvalues <- 2 * (1 - pnorm(abs(boot_res_mean) / boot_res_sd))
+
+naive_fit <- fits$gwdsp_with_log_patients
+
+texreg::screenreg(
+  list(
+    A=naive_fit,
+    B=naive_fit
+    ),
+  override.se = list(NULL, boot_res_sd),
+  override.pvalues = list(NULL, pvalues),
+  single.row = TRUE
+)
+```
+

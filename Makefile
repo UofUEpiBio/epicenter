@@ -54,7 +54,7 @@ singularity:
 singularity_run:
 	singularity exec --bind=$(PWD):/epicenter \
 		--pwd /epicenter \
-		epicenter.sif bash
+		epicenter_latest-amd64.sif bash
 
 singularity_pull:
 	$(ENGINE) pull $(PLATFORM) quay.io/singularity/singularity:v4.1.0
@@ -63,3 +63,5 @@ singularity_render_chpc:
 	singularity exec --bind=$(PWD):/epicenter --pwd=epicenter \
 		epicenter.sif make render
 
+join_salloc:
+	srun --jobid $(JOB_ID) --overlap --pty bash
