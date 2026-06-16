@@ -31,16 +31,6 @@ fits <- readRDS("models/03-pooled-ergms-final-results.rds")
 ## Testing the bootstrapping function
 
 ```{r}
-set.seed(333)
-ans <- boot_ergm(
-  networks = networks,
-  ergm_formula =
-    Networks(nets) ~ edges,
-  nboot = 10
-)
-```
-
-```{r}
 cl <- makeForkCluster(6)
 set.seed(333)
 ans <- boot_ergm(
