@@ -31,6 +31,7 @@ The following code chunk loads the relevant model objects and nodal attribute da
 #| label: load-packages-and-data
 # Loading data from the models
 load('data/network93_f2.RData')
+fits <- readRDS("models/03-pooled-ergms-final-results.rds")
 fits_boot <- readRDS("models/04c-boot-ergms-results.rds")
 source('models/helpers.R')
 ```
@@ -156,6 +157,7 @@ if (interactive())
 We can also compute the statistics
 
 ```{r}
+degs[, size_num := as.numeric(size)]
 degs[is_actor == "HCP", .(
   mean_degree = mean(degree/size_num),
   median_degree = median(degree/size_num),
@@ -234,8 +236,8 @@ texreg::screenreg(
     'Naive model'=naive_fit,
     'Bootstrap model'=naive_fit
     ),
-  override.se = list(NULL, fits_boot$boot_res_sd),
-  override.pvalues = list(NULL, fits_boot$pvalues),
+  override.se = list(NULL, fits_boot$bootstrap_sds_no_intercept),
+  override.pvalues = list(NULL, fits_boot$pvalues_no_intercept),
   single.row = TRUE
 )
 ```
