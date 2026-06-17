@@ -67,7 +67,8 @@ ans <- boot_ergm(
     main.method = "Stochastic-Approximation",
     SA.samplesize = 1024 * 8,
     SA.burnin = 1024 * 64, # Double
-    SA.interval = 1024 * 8
+    SA.interval = 1024 * 8,
+    SA.phase3_n = 1024 * 4
   ),
   offset.coef = c(-Inf, -Inf),
   nboot = 200,

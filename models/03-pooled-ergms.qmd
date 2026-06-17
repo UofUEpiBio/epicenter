@@ -1,14 +1,6 @@
 ---
 title: "Bipartite networks of health care workers and residents in long-term care facilities"
 format: html
-  # pdf:
-  #   extra_dependencies:
-  #     - pdflscape
-  #     - rotating
-  #     - tabularx
-  #     - booktabs
-  #     - geometry
-  #     - graphicx
 editor_options: 
   markdown: 
     wrap: 80
@@ -16,7 +8,7 @@ date: 2023-08-26
 author:
   - Chong Zhang
   - George G. Vega Yon
-date-modified: 2025-01-03
+date-modified: 2026-06-16
 embed-resources: true
 ---
 ## Overview
@@ -42,14 +34,6 @@ We have interaction data between HCWs and residents from a sample of 100 network
 #| message: false
 #| warning: false
 source("models/helpers.R")
-
-sessionInfo()
-```
-
-Load network data
-
-```{r}
-#| label: read-clean
 load('data/network93_f2.RData') # a list of 93 networks to fit ERGMs
 ```
 
@@ -133,6 +117,7 @@ Model 4, the mean-centered, is the one with best fit overall. Adding the square 
 
 ```{r}
 #| label: model0-convergence
+#| eval: false
 mcmc.diagnostics(res0_state_centered)
 ```
 
@@ -189,6 +174,7 @@ The Model 2 (correcting for the log(n_hcp)) has the best fit overall. This is in
 
 ```{r}
 #| label: model0_hcp-convergence
+#| eval: false
 mcmc.diagnostics(res0_hcp)
 ```
 
@@ -217,6 +203,7 @@ At first look, it seems this approach performs significantly better. Let's look 
 
 ```{r}
 #| label: model0_both-convergence
+#| eval: false
 mcmc.diagnostics(res0_both)
 ```
 
@@ -272,6 +259,7 @@ Let's check the convergence diagnostics:
 
 ```{r}
 #| label: model-hcp-type-convergence
+#| eval: false
 mcmc.diagnostics(res1_hcp_type)
 ```
 
@@ -328,6 +316,7 @@ Although the AIC and BIC suggest that the new model is better, we need to check 
 
 ```{r}
 #| label: model1_mcmle_convergence
+#| eval: false
 mcmc.diagnostics(res1_gwb1dsp)
 ```
 
@@ -748,6 +737,7 @@ tabulator(
 Let's look at the MCMC diagnostics.
 
 ```{r}
+#| eval: false
 mcmc.diagnostics(res4_gwdsp_var_bnodematch_no_logres)
 ```
 
@@ -794,6 +784,7 @@ tabulator(
 Let's look into the MCMC diagnostics.
 
 ```{r}
+#| eval: false
 mcmc.diagnostics(res4_gwdsp_var_bnodematch)
 ```
 
@@ -845,63 +836,12 @@ tabulator(
 )
 ```
 
-Saving the results
-
-```{r}  
-#| label: gof
-#| eval: true
-#| cache: true
-#| message: false
-#| warning: false
-saveRDS(
-  list(
-    bfactors = best_model,
-    gwdsp_no_log_patients = res4_gwdsp_var_bnodematch_no_logres,
-    gwdsp_with_log_patients = res4_gwdsp_var_bnodematch,
-    original = res5_original
-  ),
-  "models/03-pooled-ergms-final-results.rds"
-)
-```
-
 # Extra
 
 We will try to fit the model using the state intercept
 
 
 ```{r}
-init6_old3 <- with(model_data, ergm(
-  Networks(nets) ~
-    N(~edges, ~
-      I(log(n_patients) - mean(log(n_patients))) +
-      I(log(n_hcp) - mean(log(n_hcp))) 
-      # facility_state
-      )+
-    # Using "Other" as the reference level
-    b1factor("type", levels = -3) +
-    gwb1dsp(fixed = FALSE, cutoff = 100) +
-    b2factor('dialysis') +
-    b2factor('wound_care') +
-    b2factor('bedridden') +
-    b2factor('ventilator') +
-    b2factor('mdro') +
-    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
-    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
-    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
-    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
-    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
-    b1nodematch('type', alpha = .25, diff = TRUE) +
-  offset(b1degree(0))+offset(b2degree(0)),
-  offset.coef = c(-Inf, -Inf),
-  control = control.ergm(
-    main.method = "Stochastic-Approximation",
-    seed = 112,
-    SA.samplesize = 1024 * 8,
-    SA.burnin = 1024 * 64, # Double
-    SA.interval = 1024 * 8
-  )
-))
-
 with_restore("res6_full_and_facility", model_data, ergm(
   Networks(nets) ~
     N(~edges, ~
@@ -930,7 +870,8 @@ with_restore("res6_full_and_facility", model_data, ergm(
     seed = 112,
     SA.samplesize = 1024 * 8,
     SA.burnin = 1024 * 64, # Double
-    SA.interval = 1024 * 8
+    SA.interval = 1024 * 8,
+    SA.phase3_n = 1024 * 4
   )
 ))
 
@@ -965,8 +906,7 @@ with_restore("res6_full_and_facility_mcmle", model_data, ergm(
 
 tabulator(
   list(
-    res4_gwdsp_var_bnodematch,    
-    init6_old3,
+    res4_gwdsp_var_bnodematch,
     res6_full_and_facility,
     res6_full_and_facility_mcmle
   ),
@@ -974,3 +914,24 @@ tabulator(
 )
 ```
 
+
+Saving the results
+
+```{r}  
+#| label: gof
+#| eval: true
+#| cache: true
+#| message: false
+#| warning: false
+saveRDS(
+  list(
+    bfactors = best_model,
+    gwdsp_no_log_patients = res4_gwdsp_var_bnodematch_no_logres,
+    gwdsp_with_log_patients = res4_gwdsp_var_bnodematch,
+    original = res5_original,
+    full_and_facility = res6_full_and_facility,
+    full_and_facility_mcmle = res6_full_and_facility_mcmle
+  ),
+  file = "models/03-pooled-ergms-final-results.rds"
+)
+```
