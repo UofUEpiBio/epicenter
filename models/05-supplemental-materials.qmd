@@ -550,7 +550,7 @@ cat("Degrees of Freedom:  ", df, "\n")
 cat("P-value:             ", omnibus_pval, "\n")
 ```
 
-The resulting output, the F-statistic is 2.55 with a p-value of 0.025 but only with the intercept strongly significant. The fixed effect for MN is significant at the 
+The resulting output, the Chi2-statistic is 13.51 with a p-value of 0.035, suggesting that the model as a whole is statistically significant.
 
 ## Simulating and visualizing networks
 
@@ -558,12 +558,17 @@ Finally, we compare simulated networks generated from the fitted model to the ob
 
 ```{r}
 #| label: simulate-networks
-sims <- simulate(naive_fit, nsim = 1, seed = 1234) |>
-  ergmito::splitnetwork(".NetworkID")
+fn <- "models/05-supplemental-materials-sims.rds"
+if (!file.exists(fn)) {
+  sims <- simulate(naive_fit, nsim = 1, seed = 1234) |>
+    ergmito::splitnetwork(".NetworkID")
+  saveRDS(sims, fn)
+} else {
+  sims <- readRDS(fn)
+}
 
 # Original networks
-networks_0 <- naive_fit$network |>
-  splitnetwork(".NetworkID")
+networks_0 <- networks
 ```
 
 ```{r}
@@ -598,7 +603,7 @@ for (i in c(6, 8, 9)) {
 }
 
 # Groups them by column (column major)
-marrangeGrob(
+gridExtra::marrangeGrob(
   grobs = ans, ncol = 3, nrow = 2, padding = unit(.5, "line"),
   top = ""
   )
