@@ -31,14 +31,8 @@ The following code chunk loads the relevant model objects and nodal attribute da
 #| label: load-packages-and-data
 # Loading data from the models
 load('data/network93_f2.RData')
-fits <- readRDS("models/03-pooled-ergms-final-results.rds")
-fits_boot <- readRDS("models/04-boot-ergms-results.rds")
+fits_boot <- readRDS("models/04c-boot-ergms-results.rds")
 source('models/helpers.R')
-
-tabulator(
-  fits,
-  single.row=TRUE
-)
 ```
 
 ## Clustering sizes (do we want to group them all?)

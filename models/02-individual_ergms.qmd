@@ -1,6 +1,6 @@
 ---
 title: "Individual ERGMs"
-format: pdf
+format: html
 ---
 
 
@@ -12,7 +12,7 @@ load('data/network93_f2.RData')
 # When this flag is TRUE, the document will
 # avoid trying to fit the models that are not available
 # in the "models/02-individual_ergms_fits" folder.
-skip_missing <- FALSE
+skip_missing <- TRUE
 ```
 
 
@@ -20,7 +20,7 @@ skip_missing <- FALSE
 #| label: setup-cluster
 # Setting up the cluster object
 library(parallel)
-cl <- makeCluster(6, timeout = 5 * 60) # 10 minutes timeout
+cl <- makeForkCluster(40)
 invisible(clusterEvalQ(cl, {
   load('data/network93_f2.RData')
   source("models/helpers.R")
@@ -218,7 +218,7 @@ knitr::kable(overlap_summary)
 if (exists("cl")) {
   parallel::stopCluster(cl)
 }
-cl <- parallel::makeCluster(6, timeout = 5 * 60) # 10 minutes timeout
+cl <- parallel::makeForkCluster(40)
 invisible(parallel::clusterEvalQ(cl, {
   load('data/network93_f2.RData')
   source("models/helpers.R")
@@ -346,7 +346,7 @@ grobs <- lapply(missing_indices, function(i) {
   netplot::nplot(networks[[i]], vertex.col = ~type)
 })
 
-gridExtra::grid.arrange(grobs = grobs, nrow = 4, ncol=3)
+gridExtra::grid.arrange(grobs = grobs, nrow = 5, ncol=3)
 ```
 
 We also need to identify to which state each of the missing networks belongs.
@@ -613,10 +613,17 @@ if (39 %in% error_fits) {
 ```{r}
 fits_coefs <- lapply(seq_along(networks), \(i) {
 
-  out <- if (i %in% saved_indices)
+  out <- if (i %in% saved_indices) {
     readRDS(sprintf("models/02-individual_ergms_fits/%02i_full.rds", i))
-  else
+  } else if (exists(paste0("ans_", i))) {
     get(paste0("ans_", i))
+  } else {
+    return(NULL)
+  }
+
+  if (inherits(out, "error")) {
+    return(NULL)
+  }
 
   ans <- summary(out)$coefficients
 
@@ -675,3 +682,4 @@ Compared to other categories, CNAs and Nurses both tend to have a significantly 
 On the other hand, bedridden and wound care patients tend to have a significantly higher number of ties compared to other patient populations, but the significance is less consistent (fewer than 6 and 5 % of the time).
 
 This is the most sophisticated analysis we have conducted so far. Adding mixing patterns at the individual network level is cumbersome. Instead, we will focus on using pooled models to analyze the data.
+

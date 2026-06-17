@@ -1,6 +1,6 @@
 ---
 title: "Descriptive Analysis"
-format: pdf
+format: html
 author: George G Vega Yon, Ph.D.
 date: 2026-06-12
 ---
