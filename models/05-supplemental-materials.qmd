@@ -1,5 +1,5 @@
 ---
-format: docx
+format: html
 title: "Supplemental Materials for \"Exponential-Family Random Graph Models in Resident-Healthcare Provider Networks: An Application using data from Long-term Healthcare Facilities in the United States\""
 author:
   - George G. Vega Yon
@@ -99,6 +99,8 @@ if (interactive())
 
 ```{r}
 #| label: degree-distribution
+#| fig-height: 8
+#| fig-width: 6
 degs <- lapply(networks, \(n) {
   hcw_type <- ifelse(
     n %v% "Nurse" == 1, "Nurse",
@@ -133,7 +135,7 @@ degs[, net_id := factor(net_id, levels = unique(net_id))]
 degs[, size := factor(size, levels = sort(unique(size)))]
 degs[, type_hcp := factor(type_hcp)]
 
-degs[, is_actor := ifelse(is_actor, "HCP", "Patient")]
+degs[, is_actor := ifelse(is_actor, "HCP", "Resident")]
 
 degs |>
   ggplot(aes(y = size, x=degree, fill = is_actor)) +
@@ -144,9 +146,8 @@ degs |>
   facet_wrap(~state, scales = "free_y", ncol = 2) +
   labs(
     x = "Degree",
-    y = "Network Size (sorted by, not at scale)",
-    fill = "Node Type",
-    title = "Degree distribution across node types and network sizes"
+    y = "Network size (sorted by, not at scale)",
+    fill = "Node type"
   ) +
   theme_minimal()
 
@@ -175,6 +176,9 @@ degs[is_actor == "HCP", .(
 ```
 
 ```{r}
+#| label: degree-distribution-by-type
+#| fig-height: 8
+#| fig-width: 6
 degs |>
   ggplot(aes(y = state, x=degree)) +
   geom_density_ridges(
@@ -297,28 +301,38 @@ The next section explores whether the model could be improved by comparing obser
 #| label: gof-obs-vs-fitted
 #| warning: false
 #| fig-height: 6
+#| fig-width: 8
 vars <- names(gof_final) 
 
 # Removing the b1dsp* & offset terms variables
 vars <- vars[!grepl("b1dsp|b.degree0", vars)]
 
-if (interactive())
-  pdf("models/05-supplemental-materials-gof-obs-vs-fitted.pdf")
-op <- par(mfrow = c(3, 3), mar = c(4, 4, 2, 1))
-for (v in vars) {
-  tmp_var <- gof_final[[v]]
+# Generating fancy dataset
+plot_data <- lapply(vars, \(v) {
+  data.table(
+    variable = v,
+    observed = gof_final[[v]]$observed,
+    fitted = gof_final[[v]]$fitted
+  )
+}) |>
+  rbindlist()
 
-  tryCatch(with(tmp_var, {
-    plot(observed, fitted, main = v, xlab = "Observed", ylab = "Fitted")
-    abline(a = 0, b=1, col = "red")
-  }), error = function(e) {
-    if (interactive())
-      message("Error in variable:", v, "\n")
-  })
-}
-par(op)
+# Re-labeling the variables for better readability
+# - b*factor.[Nurse]: Factor(Nurse) 
+# - b*nodematch[type][Nurse]: Node match (Nurse)
+# - b*nodematch.mdro.Yes: Node match (MDRO=Yes)
+plot_data$variable <- gsub("b.factor\\.([a-zA-Z0-9_]+).+", "Factor(\\1)", plot_data$variable)
+plot_data$variable <- gsub("b.nodematch\\.([a-zA-Z0-9_]+)\\.([a-zA-Z0-9_]+)", "Match\n(\\1=\\2)", plot_data$variable)
+
+ggplot(plot_data, aes(x = observed, y = fitted)) +
+  geom_point() +
+  facet_wrap(~variable, scales = "free") +
+  labs(x = "Observed", y = "Fitted") +
+  theme_minimal() +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed")
+
 if (interactive())
-  dev.off()
+  ggsave("models/05-supplemental-materials-gof-obs-vs-fitted.pdf", width = 8, height = 6)
 
 ```
 
@@ -405,6 +419,8 @@ We further investigate model fit by examining the mean squared error (MSE) of th
 
 ```{r}
 #| label: regress-networks
+#| fig-height: 3
+#| fig-width: 8
 # Retrieving the errors
 plot_gof <- function(gof_data) {
   errs <- lapply(gof_data, "[[", "pearson")

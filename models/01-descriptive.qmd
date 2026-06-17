@@ -3,6 +3,7 @@ title: "Descriptive Analysis"
 format: html
 author: George G Vega Yon, Ph.D.
 date: 2026-06-12
+embed-resources: true
 ---
 
 ```{r}
@@ -53,6 +54,8 @@ So individuals may have up to 6 different conditions. We can also visualize this
 
 ```{r}
 #| label: degree-distribution-by-node-type
+#| fig-height: 10
+#| fig-width: 6
 features[, n := .N, by = net_id]
 features[, net_id := factor(net_id, levels = unique(net_id))]
 setorder(features, state, -n)
@@ -60,6 +63,10 @@ features |>
   ggplot(aes(x = degree, fill = is_actor, y = net_id)) +
   geom_density_ridges() +
   facet_wrap(~state, scales = "free_y") +
+  labs(
+    x = "Degree",
+    y = "Network ID"
+  )
   # Removing the y-axis ticks
   theme(axis.ticks.y = element_blank())
 ```
@@ -105,14 +112,14 @@ features_summary <- features[,
     `Wound Care` = sum(wound_care == "Yes"),
     Bedridden = sum(bedridden == "Yes"),
     Ventilator = sum(ventilator == "Yes"),
-    MDRo = sum(mdro == "Yes"),
+    MDRO = sum(mdro == "Yes"),
     Wheelchair = sum(wheelchair == "Yes")
   ),
   by = net_id
 ]
 
 # Reshaping the data to long (from wide)
-features_long <- data.table::melt(features_summary, id.vars = "net_id", measure.vars = c("Diabetes", "Dialysis", "Wound Care", "Bedridden", "Ventilator", "MDRo", "Wheelchair"), variable.name = "Condition", value.name = "Count")
+features_long <- data.table::melt(features_summary, id.vars = "net_id", measure.vars = c("Diabetes", "Dialysis", "Wound Care", "Bedridden", "Ventilator", "MDRO", "Wheelchair"), variable.name = "Condition", value.name = "Count")
 
 features_long |>
   ggplot(aes(x = Count, y = Condition)) +
@@ -122,8 +129,7 @@ features_long |>
     ) +
   labs(
     x = "Number of Patients",
-    y = "Network",
-    title = "Distribution of Conditions by Network"
+    y = "Condition"
     ) +
   theme_minimal()
 ```
@@ -159,9 +165,9 @@ features[, .(Count = .N), by = .(net_id, type)] |>
     jittered_points = TRUE, position = "raincloud"
     ) +
   labs(
-    x = "Number of HCP",
-    y = "Type of HCP",
-    title = "Distribution of types of HCP") +
+    x = "Number of HCPs",
+    y = "Type of HCP"
+  ) +
   theme_minimal()
 ```
 
