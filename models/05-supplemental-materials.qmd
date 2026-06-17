@@ -21,19 +21,6 @@ This document presents the supplemental materials for the main manuscript, focus
 
 The code chunks below are annotated to clarify their purpose and the rationale behind each step, following best practices for reporting ERGM-based social network analyses.
 
-```{r}
-#| warning: false
-#| message: false
-library(ergm.multi)
-library(texreg)
-library(ergmito)
-library(ggplot2)
-library(ggrepel)
-library(ggridges)
-library(data.table)
-library(xtable)
-```
-
 For terms wrapped in `ergm.multi::N()`, the subset argument is applied at the network level. For example, in `N(~b2starmix(2, "Nurse"), subset = Nurse)`, "Nurse" inside `b2starmix()` denotes the vertex-level HCW type indicator, whereas the object Nurse supplied to subset is a numeric vector of network IDs. This vector contains networks with at least two nurse HCWs, so the nurse-specific 2-star mixing term is evaluated only for networks in which that statistic is defined and informative. Similar network-index subsets were constructed for other attribute-specific terms.
 
 ## Summary stats
@@ -43,73 +30,15 @@ The following code chunk loads the relevant model objects and nodal attribute da
 ```{r}
 #| label: load-packages-and-data
 # Loading data from the models
-load("data/res12_93.rda")
 load('data/network93_f2.RData')
-load('data/dd_nodal_attr.RData')
-setDT(dd)
-dd$NetID=as.numeric(dd$NetID)
+fits <- readRDS("models/03-pooled-ergms-final-results.rds")
+fits_boot <- readRDS("models/04-boot-ergms-results.rds")
+source('models/helpers.R')
 
-# Summary about MDROs
-mdro <- dd[, n := sum(mdro == 'Yes'), NetID][n>0, unique(NetID)] 
-
-counts <- summary_formula(
-  res12_93$network ~
-    N(~edges, ~log(n))+
-    N(~gwb1dsp(0.75, fixed=TRUE))+
-    N(~b2starmix(2, 'Nurse'), subset=Nurse)+
-    N(~b2factor('wound_care'), subset=wound_care)+
-    N(~b2factor('bedridden'), subset=bedridden)+
-    N(~b1starmix(2, 'wound_care', diff=TRUE), subset = wound_care) +
-    N(~b1starmix(2, 'ventilator', diff=TRUE), subset = ventilator2) +
-    N(~b1starmix(2, 'diabetes', diff=TRUE), subset=diabetes2) +
-    N(~b2starmix(2, 'PTOTRT'), subset=PTOTRT) +
-    N(~b2starmix(2, 'mdro', diff = TRUE), subset=mdro)
-  )
-
-n <- 93 #uncombine_network(res12_93$network) |>
-  #length()
-
-mytab <- data.table(
-  Statistic = names(counts),
-  Value     = as.integer(counts),
-  Avg       = counts/n
+tabulator(
+  fits,
+  single.row=TRUE
 )
-
-mytab[, Statistic := gsub("b.starmix.{3}", "", Statistic)]
-knitr::kable(
-  mytab,
-  caption = "Summary statistics of the model",
-  digits = 2
-)
-```
-
-```{r}
-#| label: latex-table
-#| echo: false
-#| include: false
-# Creating the latex table
-mytab <- data.table(
-  Statistic = paste("\\hspace{.5cm}", names(counts)),
-  Value     = as.integer(counts),
-  Avg       = counts/n
-)
-
-mytab <- xtable::xtable(mytab)
-
-ans <- list(
-  mytab[1:5,],
-  mytab[6:11,],
-  mytab[11:nrow(mytab),]
-  )
-
-lapply(ans, print, 
-  include.colnames = FALSE,
-  include.rownames = FALSE,
-  only.contents = TRUE,
-  hline.after = NULL,
-  sanitize.text.function	= \(x) x
-  ) |> invisible()
-
 ```
 
 ## Clustering sizes (do we want to group them all?)
@@ -148,6 +77,9 @@ ggplot(sizes, aes(y = state, x = size)) +
     title = "Distribution of Network Sizes by State"
   ) +
   theme_minimal()
+
+if (interactive())
+  ggsave("models/05-supplemental-materials-cluster-sizes.png", width = 10, height = 6)
 ```
 
 Maryland has only 6 networks and the sizes are highly irregular. Let's take a look at how network size compares with the network density
@@ -163,6 +95,9 @@ ggplot(sizes, aes(x = size, y = nties)) +
     title = "Number of Ties vs Network Size"
   ) +
   theme_minimal()
+
+if (interactive())
+  ggsave("models/05-supplemental-materials-nties-vs-size.png", width = 10, height = 6)
 ```
 
 ## Degree distribution across types of nodes and sizes
@@ -191,9 +126,12 @@ degs <- lapply(networks, \(n) {
     is_actor = n %v% "is_actor",
     size = network.size(n),
     state = n %v% "state",
-    type_hcp = hcw_type
+    type_hcp = hcw_type,
+    type = n %v% "type"
   )
 }) |> rbindlist()
+
+degs[type %in% c("Physician", "PA/NP"), type := "Other"]
 
 degs[is_actor == FALSE, type_hcp := "Patient"]
 degs[, net_id := factor(net_id, levels = unique(net_id))]
@@ -211,22 +149,14 @@ degs |>
   facet_wrap(~state, scales = "free_y", ncol = 2) +
   labs(
     x = "Degree",
-    y = "Network Size",
+    y = "Network Size (sorted by, not at scale)",
     fill = "Node Type",
     title = "Degree distribution across node types and network sizes"
   ) +
   theme_minimal()
-```
 
-Checking the association with degree and size through a regression model
-
-```{r}
-degs[, size_num := as.integer(size)]
-lm(degree ~ 
-  state +
-  size_num*state + I(size_num^2) + is_actor*size_num, data = degs) |>
-  summary() |>
-  texreg::screenreg(single.row = TRUE, digits = 2)
+if (interactive())
+  ggsave("models/05-supplemental-materials-degree-distribution.png", width = 6, height = 10)
 ```
 
 We can also compute the statistics
@@ -235,7 +165,12 @@ We can also compute the statistics
 degs[is_actor == "HCP", .(
   mean_degree = mean(degree/size_num),
   median_degree = median(degree/size_num),
-  sd_degree = sd(degree/size_num)
+  sd_degree = sd(degree/size_num),
+  ci = sprintf(
+    "[%.2f, %.2f]",
+    quantile(degree/size_num, probs = c(0.025)),
+    quantile(degree/size_num, probs = c(0.975))
+  )
 ), by = .(state)][order(mean_degree)] |>
   knitr::kable(
     caption = "Summary of degree distribution for HCPs across states (scaled by size)",
@@ -244,19 +179,22 @@ degs[is_actor == "HCP", .(
 ```
 
 ```{r}
-degs[is_actor == "HCP"] |>
-  ggplot(aes(y = type_hcp, x=degree)) +
+degs |>
+  ggplot(aes(y = state, x=degree)) +
   geom_density_ridges(
     jittered_points = TRUE, position = "raincloud",
     alpha = 0.9, scale = 0.9
   ) +
-  facet_wrap(~state, scales = "free_y", ncol = 2) +
+  facet_wrap(~type, scales = "free_y", ncol = 2) +
   labs(
     x = "Degree",
     y = "Network Size",
     title = "Degree distribution across node types and network sizes"
   ) +
   theme_minimal()
+
+if (interactive())
+  ggsave("models/05-supplemental-materials-degree-distribution-by-type.png", width = 6, height = 6)
 ```
 
 Let's now look at the concurrent distribution across sizes and states.
@@ -282,6 +220,9 @@ dat_b2concurrent |>
   ggplot(aes(y = size, x=b2concurrent, color = state)) +
   geom_jitter() +
   geom_smooth(method = "lm")
+
+if (interactive())
+  ggsave("models/05-supplemental-materials-b2concurrent.png", width = 6, height = 6)
 ```
 
 There is a clear linear association with size, so this variable can be, in principle, captured without scaling by the log(n hcp).
@@ -292,9 +233,16 @@ The following code chunk displays the results of the final multi-ERGM model fit.
 
 ```{r}
 #| label: final-model
+naive_fit <- fits$gwdsp_with_log_patients
 texreg::screenreg(
-  res12_93,
-  digits = 2
+  # file = "models/04-boot-ergms-results.html",
+  list(
+    'Naive model'=naive_fit,
+    'Bootstrap model'=naive_fit
+    ),
+  override.se = list(NULL, fits_boot$boot_res_sd),
+  override.pvalues = list(NULL, fits_boot$pvalues),
+  single.row = TRUE
 )
 ```
 
@@ -304,7 +252,19 @@ In this section, we load the pre-computed goodness-of-fit (GOF) statistics for t
 
 ```{r}
 #| label: load-gof
-gof12_93 <- readRDS("data/gofN_model12_93.rds")
+fn <- "models/05-supplemental-materials-gof.rds"
+if (file.exists(fn)) {
+  gof_final <- readRDS(fn)
+  gof_with_state <- gof_final$with_state
+  gof_final <- gof_final$final
+}else {
+  gof_final <- gofN(naive_fit)
+  gof_with_state <- gofN(fits[[1]])
+  saveRDS(
+    list(with_state = gof_with_state, final = gof_final),
+    fn
+    )
+}
 ```
 
 ```{r}
@@ -313,7 +273,7 @@ gof12_93 <- readRDS("data/gofN_model12_93.rds")
 #| eval: false
 
 if (interactive())
-  pdf("gof12_93-new.pdf")
+  pdf("models/05-supplemental-materials-gof.pdf")
 
 op <- par(
   mfrow = c(4, 2),
@@ -325,7 +285,7 @@ op <- par(
   )
 # figs <- autoplot(gof12_93, main = "{name} - {type}", id.n = 5)
 plot(
-  gof12_93, main = "{name}\n{type}", id.n = 5, , which = 1,
+  gof_final, main = "{name}\n{type}", id.n = 5, , which = 1,
   xlab = ""
   )
 par(op)
@@ -341,13 +301,16 @@ The next section explores whether the model could be improved by comparing obser
 #| label: gof-obs-vs-fitted
 #| warning: false
 #| fig-height: 6
-vars <- names(gof12_93) 
+vars <- names(gof_final) 
+
+# Removing the b1dsp* & offset terms variables
+vars <- vars[!grepl("b1dsp|b.degree0", vars)]
 
 if (interactive())
-  pdf("gof12_93-obs-vs-fitted.pdf")
+  pdf("models/05-supplemental-materials-gof-obs-vs-fitted.pdf")
 op <- par(mfrow = c(3, 3), mar = c(4, 4, 2, 1))
 for (v in vars) {
-  tmp_var <- gof12_93[[v]]
+  tmp_var <- gof_final[[v]]
 
   tryCatch(with(tmp_var, {
     plot(observed, fitted, main = v, xlab = "Observed", ylab = "Fitted")
@@ -422,9 +385,8 @@ fig_size_hcw_degree <- ggplot(network_stats, aes(x = size, y = hcw_mean_degree))
 # Combine both figures into a single ggplot object
 library(patchwork)
 fig_size + fig_size_hcw + fig_size_hcw_degree
-ggsave("size-distribution.png", width = 9*.75, height = 3*.75)
+ggsave("models/05-supplemental-materials-network-feats.png", width = 9*.75, height = 3*.75)
 
-library(gridExtra)
 ```
 
 ## MCMC diagnostics
@@ -436,8 +398,8 @@ To assess the adequacy of the Markov Chain Monte Carlo (MCMC) estimation procedu
 #| fig-height: 10 
 op <- par(mfrow = c(3, 2))
 if (interactive())
-  pdf("mcmc_diagnostics.pdf", width = 8, height = 10)
-mcmc.diagnostics(res12_93, which = "plots")
+  pdf("models/05-supplemental-materials-mcmc-diagnostics.pdf", width = 8, height = 10)
+mcmc.diagnostics(naive_fit, which = "plots")
 par(op)
 if (interactive())
   dev.off()
@@ -448,36 +410,151 @@ We further investigate model fit by examining the mean squared error (MSE) of th
 ```{r}
 #| label: regress-networks
 # Retrieving the errors
-errs <- lapply(gof12_93, "[[", "pearson")
+plot_gof <- function(gof_data) {
+  errs <- lapply(gof_data, "[[", "pearson")
 
-# Most commonly misfitted networks looking at the MSE
-errs <- data.table(
-  network = as.character(1:length(errs[[1]])),
-  mse = do.call(cbind, errs) |>
-    apply(1, \(x) mean(abs(x), na.rm = TRUE))
-)
+  # Removing the b1dsp* & offset terms variables
+  to_exclude <- which(!grepl("b1dsp|b.degree", names(errs)))
+  errs <- errs[to_exclude]
 
-setorder(errs, mse)
-errs[, network := factor(network, levels = network)]
+  errs <- as.data.frame(errs) |>
+    data.table()
 
-# Plotting
-if (interactive())
-  pdf("errs.pdf")
+  # Obs
+  obs_val <- lapply(gof_data, "[[", "observed")
+  obs_val <- obs_val[to_exclude]
 
-ggplot(tail(errs, 20), aes(x = network, y = mse)) +
-  geom_point() +
-  geom_line() +
-  labs(
-    x = "Network",
-    y = "Mean Squared Error",
-    title = "Mean Squared Error of the Networks",
-    subtitle = "(top 20)"
-  ) +
-  theme_minimal()
+  obs_val <- as.data.frame(obs_val) |>
+    data.table()
 
-if (interactive())
-  dev.off()
+  obs_val[, id := 1:.N]
+
+  # Fitted
+  fitted_val <- lapply(gof_data, "[[", "fitted")
+  fitted_val <- fitted_val[to_exclude]
+
+  fitted_val <- as.data.frame(fitted_val) |>
+    data.table()
+
+  fitted_val[, id := 1:.N]
+
+  # Getting the state and size of each network
+  errs$id <- 1:length(errs[[1]])
+  errs$state <- sapply(networks, \(x) {unique(x %v% "state")})
+  errs$size <- sapply(networks, network.size)
+  errs$n_hcp <- sapply(networks, \(x) {sum(x %v% "is_actor")})
+  errs$n_resident <- sapply(networks, \(x) {sum(!x %v% "is_actor")})
+
+  # Reshape long (from wide)
+  errs <- melt(
+    errs, id.vars = c("id", "state", "size", "n_hcp", "n_resident"),
+    variable.name = "term", value.name = "error"
+    )
+
+  obs_val <- melt(obs_val, id.vars = c("id"), variable.name = "term", value.name = "observed")
+
+  fitted_val <- melt(fitted_val, id.vars = c("id"), variable.name = "term", value.name = "fitted")
+
+  errs <- merge(errs, obs_val, by = c("id", "term"))
+  errs <- merge(errs, fitted_val, by = c("id", "term"))
+
+  # Turning into the sqrt(abs)
+  errs$error <- sqrt(abs(errs$error))
+
+  fig <- ggplot(errs[term == "N.1..edges"], aes(x = size, y = error)) +
+    geom_jitter(aes(color = state), height = 0) +
+    labs(
+      x = "Network Size",
+      # The y-label should be the math expression
+      # for the sqrt(abs(Std. Pearson Residual))
+      y = expression(sqrt(abs("Std. Pearson Res. (edges)"))),
+      color = "State"
+    ) +
+    # Adding a lowess line by state
+    geom_smooth(aes(color=state), se = FALSE, method="lm") +
+    theme_minimal() +
+    # Need to label the outlier observation that is outside the value 2
+    # using ggrepel
+    geom_text_repel(
+      aes(label = ifelse(error > 2, id, ""), color=state),
+      show.legend = FALSE
+      )
+
+  list(
+    fig = fig,
+    dat = errs
+  )
+
+}
+
+gg_err <- plot_gof(gof_final)
+gg_err_states <- plot_gof(gof_with_state)
+
+if (interactive()) {
+  ggsave( 
+    "models/05-supplemental-materials-errs.pdf", 
+    plot = gg_err$fig,
+    width = 8, height = 3
+    )
+} else
+  print(gg_err$fig)
 ```
+
+We can also test whether the error in edges prediction can be explained by the state of the network (trying to find significant differences in the error across different states). Since we know that the networks are not idependent, we will use a bootstrap approach to account for this:
+
+```{r}
+set.seed(3312)
+dat_err_edges <- gg_err_states$dat[term == "N.1..edges"]
+
+# Initial fit
+boot_fit <- lm(error ~ factor(state), data = dat_err_edges)
+
+# Bootstrap
+n_obs <- nrow(dat_err_edges)
+boot_err <- replicate(
+  1000, {
+    idx <- sample(n_obs, n_obs, replace = TRUE)
+    lm(error ~ factor(state), data = dat_err_edges[idx, ]) |> 
+      coef()
+})
+
+# Collecting the results
+boot_err <- do.call(rbind, list(boot_err)) |>
+  t() 
+
+# Computing sds
+boot_err_sds <- apply(boot_err, 2, sd)
+
+# Calculating pvalues
+boot_err_pvals <- 2 * (1 - pnorm(abs(coef(boot_fit)) / boot_err_sds))
+
+# 1. Extract original coefficients (excluding the Intercept)
+# We only want to test the 'state' variables
+beta_orig <- coef(boot_fit)[-1] 
+
+# 2. Compute the variance-covariance matrix of the bootstrap estimates
+# We exclude the first column (the Intercept) to match beta_orig
+boot_vcov <- cov(boot_err[, -1])
+
+# 3. Compute the Wald Chi-Square Statistic
+# Formula: W = t(beta) %*% solve(Sigma) %*% beta
+W_stat <- t(beta_orig) %*% solve(boot_vcov) %*% beta_orig
+
+# 4. Degrees of freedom = number of parameters being tested
+df <- length(beta_orig)
+
+# 5. Compute the p-value using the Chi-Square distribution
+omnibus_pval <- pchisq(as.numeric(W_stat), df = df, lower.tail = FALSE)
+
+# Print results
+cat("Bootstrap Omnibus Wald Test\n")
+cat("---------------------------\n")
+cat("Chi-Square Statistic:", as.numeric(W_stat), "\n")
+cat("Degrees of Freedom:  ", df, "\n")
+cat("P-value:             ", omnibus_pval, "\n")
+```
+
+The resulting output, the F-statistic is 2.55 with a p-value of 0.025 but only with the intercept strongly significant. The fixed effect for MN is significant at the 
 
 ## Simulating and visualizing networks
 
@@ -485,11 +562,11 @@ Finally, we compare simulated networks generated from the fitted model to the ob
 
 ```{r}
 #| label: simulate-networks
-sims <- simulate(res12_93, nsim = 1, seed = 1234) |>
-  splitnetwork(".NetworkID")
+sims <- simulate(naive_fit, nsim = 1, seed = 1234) |>
+  ergmito::splitnetwork(".NetworkID")
 
 # Original networks
-networks_0 <- res12_93$network |>
+networks_0 <- naive_fit$network |>
   splitnetwork(".NetworkID")
 ```
 
@@ -497,7 +574,7 @@ networks_0 <- res12_93$network |>
 #| label: plot-simulated-networks
 library(netplot)
 if (interactive())
-  svg("example1.svg", width = 8, height = 4)
+  svg("models/05-supplemental-materials-example1.svg", width = 8, height = 4)
 ans_row0 <- NULL
 ans_row1 <- NULL
 ans <- NULL

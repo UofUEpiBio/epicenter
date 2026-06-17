@@ -19,18 +19,6 @@ author:
 date-modified: 2025-01-03
 embed-resources: true
 ---
-
-8/28/2023
-
-```{r setup, include=FALSE}
-#| label: setup
-#| include: false
-knitr::opts_chunk$set(echo = TRUE, message = FALSE)
-# a few personal functions to make things easy
-
-
-```
-
 ## Overview
 
 Recent updates:
@@ -873,6 +861,116 @@ saveRDS(
     original = res5_original
   ),
   "models/03-pooled-ergms-final-results.rds"
+)
+```
+
+# Extra
+
+We will try to fit the model using the state intercept
+
+
+```{r}
+init6_old3 <- with(model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp))) 
+      # facility_state
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 100) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = control.ergm(
+    main.method = "Stochastic-Approximation",
+    seed = 112,
+    SA.samplesize = 1024 * 8,
+    SA.burnin = 1024 * 64, # Double
+    SA.interval = 1024 * 8
+  )
+))
+
+with_restore("res6_full_and_facility", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp))) +
+      facility_state
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 100) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = control.ergm(
+    main.method = "Stochastic-Approximation",
+    seed = 112,
+    SA.samplesize = 1024 * 8,
+    SA.burnin = 1024 * 64, # Double
+    SA.interval = 1024 * 8
+  )
+))
+
+with_restore("res6_full_and_facility_mcmle", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp))) +
+      facility_state
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 100) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = control.ergm(
+    init = coef(res6_full_and_facility),
+    seed = 112
+  )
+))
+
+tabulator(
+  list(
+    res4_gwdsp_var_bnodematch,    
+    init6_old3,
+    res6_full_and_facility,
+    res6_full_and_facility_mcmle
+  ),
+  single.row=TRUE
 )
 ```
 

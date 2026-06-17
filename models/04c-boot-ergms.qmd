@@ -1,0 +1,184 @@
+---
+title: "Bootstrapping ERGMs"
+format: html
+  # pdf:
+  #   extra_dependencies:
+  #     - pdflscape
+  #     - rotating
+  #     - tabularx
+  #     - booktabs
+  #     - geometry
+  #     - graphicx
+editor_options: 
+  markdown: 
+    wrap: 80
+date: 2023-08-26
+author:
+  - Chong Zhang
+  - George G. Vega Yon
+date-modified: 2025-01-03
+embed-resources: true
+---
+
+8/28/2023
+
+```{r}
+source("models/helpers.R")
+load('data/network93_f2.RData')
+fits <- readRDS("models/03-pooled-ergms-final-results.rds")
+```
+
+## Evaluating in the final model
+
+
+```{r}
+# Naive 9 cluster (for now)
+cl <- parallel::makeForkCluster(40)
+
+set.seed(333)
+ans <- boot_ergm(
+  networks = networks,
+  ergm_formula =
+    Networks(nets) ~
+      N(~ edges,
+        ~
+          I(log(n_patients) - mean(log(n_patients))) + 
+          I(log(n_hcp) - mean(log(n_hcp))) +
+          facility_state
+      ) + b1factor("type", levels = -3) + 
+    gwb1dsp(fixed = FALSE, cutoff = 100) + b2factor("dialysis") + 
+    b2factor("wound_care") + b2factor("bedridden") + b2factor("ventilator") + 
+    b2factor("mdro") + b2nodematch("diabetes", alpha = 0.25, 
+    diff = TRUE, levels = 2) + b2nodematch("mdro", alpha = 0.25, 
+    diff = TRUE, levels = 2) + b2nodematch("ventilator", alpha = 0.25, 
+    diff = TRUE, levels = 2) + b2nodematch("wound_care", alpha = 0.25, 
+    diff = TRUE, levels = 2) + b2nodematch("bedridden", alpha = 0.25, 
+    diff = TRUE, levels = 2) + b1nodematch("type", alpha = 0.25, 
+    diff = TRUE) + offset(b1degree(0)) + offset(b2degree(0)),
+  control = control.ergm(
+    seed = 1123,
+    # fits$gwdsp_with_log_patients |> coef() |> unname() |> dput()
+    main.method = "Stochastic-Approximation",
+    SA.samplesize = 1024 * 8,
+    SA.burnin = 1024 * 64, # Double
+    SA.interval = 1024 * 8,
+    SA.phase3_n = 1024 * 4,
+    # We don't care about these errors, or evaluating the log-likelihood
+    MCMC.addto.se = FALSE,
+    MCMC.return.stats = FALSE
+  ),
+  offset.coef = c(-Inf, -Inf),
+  nboot = 200,
+  cl = cl,
+  cache = "models/04c-boot-ergms-cache"
+)
+parallel::stopCluster(cl)
+```
+
+Generating an initial estimate based on the SA
+
+```{r}
+fn <- "models/04c-boot-ergms-initial.rds"
+
+if (!file.exists(fn)) {
+  model_data <- set_ergm(networks)
+  sa_estimates <- with(model_data, ergm(
+    Networks(nets) ~
+        N(~ edges,
+          ~
+            I(log(n_patients) - mean(log(n_patients))) + 
+            I(log(n_hcp) - mean(log(n_hcp))) +
+            facility_state
+        ) + b1factor("type", levels = -3) + 
+      gwb1dsp(fixed = FALSE, cutoff = 100) + b2factor("dialysis") + 
+      b2factor("wound_care") + b2factor("bedridden") + b2factor("ventilator") + 
+      b2factor("mdro") + b2nodematch("diabetes", alpha = 0.25, 
+      diff = TRUE, levels = 2) + b2nodematch("mdro", alpha = 0.25, 
+      diff = TRUE, levels = 2) + b2nodematch("ventilator", alpha = 0.25, 
+      diff = TRUE, levels = 2) + b2nodematch("wound_care", alpha = 0.25, 
+      diff = TRUE, levels = 2) + b2nodematch("bedridden", alpha = 0.25, 
+      diff = TRUE, levels = 2) + b1nodematch("type", alpha = 0.25, 
+      diff = TRUE) + offset(b1degree(0)) + offset(b2degree(0)),
+    control = control.ergm(
+      seed = 1123,
+      # fits$gwdsp_with_log_patients |> coef() |> unname() |> dput()
+      main.method = "Stochastic-Approximation",
+      SA.samplesize = 1024 * 8,
+      SA.burnin = 1024 * 64, # Double
+      SA.interval = 1024 * 8,
+      SA.phase3_n = 1024 * 4
+    ),
+    offset.coef = c(-Inf, -Inf)
+  ))
+  saveRDS(sa_estimates, file = fn)
+} else {
+  sa_estimates <- readRDS(fn)
+}
+```
+
+## Processing the bootstrap results
+
+
+```{r}
+#| eval: false
+# Listing all the bootstrap results
+boot_res <- list.files(
+  "models/04c-boot-ergms-cache",
+  pattern = "\\.rds$",
+  full.names = TRUE
+  ) |> 
+  lapply(readRDS)
+
+# Keeping only those with valid results
+boot_res <- boot_res[sapply(boot_res, length) == 32] 
+
+boot_res <- do.call(what = rbind, boot_res)
+
+# Keeping smaller than 20
+n_terms <- ncol(boot_res)
+boot_res <- boot_res[apply(boot_res[, c(1:(n_terms-2))], 1, \(x) all(abs(x) < 20)), ]
+
+# Generating a regression table
+boot_res_mean <- apply(boot_res, 2, mean, na.rm = TRUE)
+boot_res_sd <- apply(boot_res, 2, sd, na.rm = TRUE)
+pvalues <- 2 * (1 - pnorm(abs(coef(sa_estimates)) / boot_res_sd))
+
+texreg::screenreg(
+  list(
+    'No intercept'=fits$gwdsp_with_log_patients,
+    'Naive model'=sa_estimates,
+    'SA Bootstrap model'=sa_estimates
+    ),
+  override.se = list(NULL, NULL, boot_res_sd),
+  override.pvalues = list(NULL, NULL, pvalues),
+  single.row = TRUE
+)
+```
+
+
+```{r}
+#| eval: false
+texreg::htmlreg(
+  file = "models/04c-boot-ergms-results.html",
+  list(
+    'Naive model'=naive_fit,
+    'Bootstrap model'=naive_fit
+    ),
+  override.se = list(NULL, boot_res_sd),
+  override.pvalues = list(NULL, pvalues),
+  single.row = TRUE
+)
+
+saveRDS(
+  list(
+    bootstrap_results = boot_res,
+    bootstrap_means = boot_res_mean,
+    bootstrap_sds = boot_res_sd,
+    pvalues = pvalues,
+    naive_fit = naive_fit
+  ),
+  file = "models/04c-boot-ergms-results.rds"
+)
+```
+
+

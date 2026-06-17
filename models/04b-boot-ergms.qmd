@@ -63,12 +63,16 @@ ans <- boot_ergm(
       -0.0486631133521477, -0.96254189061651, -2.18000463775114,
       -0.251900054362114, 0.878432180573765, -1.56969270927592,
       -Inf, -Inf
-    )
+    ),
+    main.method = "Stochastic-Approximation",
+    SA.samplesize = 1024 * 8,
+    SA.burnin = 1024 * 64, # Double
+    SA.interval = 1024 * 8
   ),
   offset.coef = c(-Inf, -Inf),
   nboot = 200,
   cl = cl,
-  cache = "models/04-boot-ergms-cache"
+  cache = "models/04b-boot-ergms-cache"
 )
 parallel::stopCluster(cl)
 
@@ -80,7 +84,7 @@ parallel::stopCluster(cl)
 ```{r}
 # Listing all the bootstrap results
 boot_res <- list.files(
-  "models/04-boot-ergms-cache",
+  "models/04b-boot-ergms-cache",
   pattern = "\\.rds$",
   full.names = TRUE
   ) |> 
@@ -95,18 +99,39 @@ boot_res_sd <- apply(boot_res, 2, sd, na.rm = TRUE)
 naive_fit <- fits$gwdsp_with_log_patients
 pvalues <- 2 * (1 - pnorm(abs(coef(naive_fit)) / boot_res_sd))
 
+# Reading the results from the MC-MLE bootstrap
+boot_mcmle_res <- list.files(
+  "models/04-boot-ergms-cache",
+  pattern = "\\.rds$",
+  full.names = TRUE
+  ) |> 
+  lapply(readRDS) |>
+  do.call(what = rbind)
+
+# Generating a regression table
+boot_mcmle_res_mean <- apply(boot_mcmle_res, 2, mean, na.rm = TRUE)
+boot_mcmle_res_sd <- apply(boot_mcmle_res, 2, sd, na.rm = TRUE)
+
+# Computing the pvalues
+pvalues_mcmle <- 2 * (1 - pnorm(abs(coef(naive_fit)) / boot_mcmle_res_sd))
+
 texreg::screenreg(
   list(
     'Naive model'=naive_fit,
-    'Bootstrap model'=naive_fit
+    'SA Bootstrap model'=naive_fit,
+    'MC-MLE Bootstrap model'=naive_fit
     ),
-  override.se = list(NULL, boot_res_sd),
-  override.pvalues = list(NULL, pvalues),
+  override.se = list(NULL, boot_res_sd, boot_mcmle_res_sd),
+  override.pvalues = list(NULL, pvalues, pvalues_mcmle),
   single.row = TRUE
 )
+```
 
+
+
+```{r}
 texreg::htmlreg(
-  file = "models/04-boot-ergms-results.html",
+  file = "models/04b-boot-ergms-results.html",
   list(
     'Naive model'=naive_fit,
     'Bootstrap model'=naive_fit
@@ -124,7 +149,7 @@ saveRDS(
     pvalues = pvalues,
     naive_fit = naive_fit
   ),
-  file = "models/04-boot-ergms-results.rds"
+  file = "models/04b-boot-ergms-results.rds"
 )
 ```
 

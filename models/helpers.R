@@ -2,6 +2,7 @@ library(data.table)
 library(ergm.multi)
 library(ggplot2)
 library(ggridges)
+library(ggrepel)
 library(texreg)
 library(parallel)
 
