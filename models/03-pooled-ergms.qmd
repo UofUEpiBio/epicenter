@@ -69,7 +69,7 @@ Since we do not have isolates in our network by design, we restrict the network 
 #| label: model0
 #| message: false
 #| warning: false
-#| results: hide
+
 with_restore("res0", model_data, ergm(
   Networks(nets) ~
     N(~edges, ~log(n_tot) + I(log(n_tot)^2))+
@@ -274,7 +274,7 @@ Add b2 2-star (second level 2-stars) term:
 #| label: model1
 #| message: false
 #| warning: false
-#| results: hide
+
 with_restore("res1_gwb1dsp", model_data, ergm(
   Networks(nets) ~
     N(~edges, ~ I(log(n_hcp) - mean(log(n_hcp))) + facility_state)+
@@ -332,7 +332,7 @@ Now add b2factor and b2starmix (just Nurse for now)
 #| eval: true
 #| message: false
 #| warning: false
-#| results: hide
+
 best_model <- res1_gwb1dsp
 
 with_restore("res2_b2factor_terms", model_data, ergm(
@@ -791,6 +791,7 @@ mcmc.diagnostics(res4_gwdsp_var_bnodematch)
 ## Reproducing the original paper model
 
 ```{r}
+#| label: res5_original
 with_restore("res5_original", model_data, ergm(
   Networks(nets) ~
     N(~edges, ~ I(log(n)))+
@@ -842,6 +843,7 @@ We will try to fit the model using the state intercept
 
 
 ```{r}
+#| label: res6_full_and_facility
 with_restore("res6_full_and_facility", model_data, ergm(
   Networks(nets) ~
     N(~edges, ~
@@ -920,7 +922,6 @@ Saving the results
 ```{r}  
 #| label: gof
 #| eval: true
-#| cache: true
 #| message: false
 #| warning: false
 saveRDS(
