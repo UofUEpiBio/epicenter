@@ -916,6 +916,166 @@ tabulator(
 )
 ```
 
+Using an intercept for the GWDSP term
+
+```{r}
+with_restore("res6_full_and_facility_gwdsp.75", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp)))
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    N(~gwb1dsp(0.75, fixed = TRUE), ~facility_state) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = control.ergm(
+    main.method = "Stochastic-Approximation",
+    seed = 112,
+    SA.samplesize = 1024 * 8,
+    SA.burnin = 1024 * 64, # Double
+    SA.interval = 1024 * 8,
+    SA.phase3_n = 1024 * 4
+  )
+))
+
+with_restore("res6_full_and_facility_gwdsp.84", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp)))
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    N(~gwb1dsp(0.84, fixed = TRUE), ~facility_state) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = control.ergm(
+    main.method = "Stochastic-Approximation",
+    seed = 112,
+    SA.samplesize = 1024 * 8,
+    SA.burnin = 1024 * 64, # Double
+    SA.interval = 1024 * 8,
+    SA.phase3_n = 1024 * 4
+  )
+))
+
+tabulator(
+  list(
+    res6_full_and_facility_gwdsp.75,
+    res6_full_and_facility_gwdsp.84
+  ),
+  single.row=TRUE
+)
+```
+
+The model using the GWDSP term with decay of 0.84 shows the best fit. We tried fitting the model using MC-MLE, but, after a couple of tries and more than four hours, the model never mixed properly.
+
+An additional model to test is whether the log(n) interactions with the GWDSP term improve the fit.
+
+```{r}
+with_restore("res6_full_and_logn_gwdsp.84", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp)))
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    N(
+      ~gwb1dsp(0.84, fixed = TRUE),
+      ~I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp)))
+      ) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+    control = control.ergm(
+    main.method = "Stochastic-Approximation",
+    seed = 112,
+    SA.samplesize = 1024 * 8,
+    SA.burnin = 1024 * 64, # Double
+    SA.interval = 1024 * 8,
+    SA.phase3_n = 1024 * 4
+  )
+))
+
+with_restore("res6_full_and_logn_gwdsp.84mcmle", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp)))
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    N(
+      ~gwb1dsp(0.84, fixed = TRUE),
+      ~I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp)))
+      ) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+    control = control.ergm(
+    init = coef(res6_full_and_logn_gwdsp.84),
+    seed = 112
+  )
+))
+
+# Final comparison
+tabulator(
+  list(
+    res4_gwdsp_var_bnodematch,
+    res6_full_and_facility_gwdsp.84,
+    res6_full_and_logn_gwdsp.84
+  ),
+  single.row = TRUE
+)
+
+```
 
 Saving the results
 
@@ -931,7 +1091,8 @@ saveRDS(
     gwdsp_with_log_patients = res4_gwdsp_var_bnodematch,
     original = res5_original,
     full_and_facility = res6_full_and_facility,
-    full_and_facility_mcmle = res6_full_and_facility_mcmle
+    full_and_facility_mcmle = res6_full_and_facility_mcmle,
+    gwdsp_intercept = res6_full_and_facility_gwdsp.84mcmle
   ),
   file = "models/03-pooled-ergms-final-results.rds"
 )
