@@ -84,9 +84,6 @@ boot_res <- list.files(
   ) |> 
   lapply(readRDS)
 
-# Keeping only those with valid results
-boot_res <- boot_res[sapply(boot_res, length) == 31] 
-
 boot_res <- do.call(what = rbind, boot_res)
 
 # Keeping smaller than 20
