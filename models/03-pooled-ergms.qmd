@@ -1070,7 +1070,8 @@ tabulator(
   list(
     res4_gwdsp_var_bnodematch,
     res6_full_and_facility_gwdsp.84,
-    res6_full_and_logn_gwdsp.84
+    res6_full_and_logn_gwdsp.84,
+    res6_full_and_logn_gwdsp.84mcmle
   ),
   single.row = TRUE
 )
@@ -1092,7 +1093,7 @@ saveRDS(
     original = res5_original,
     full_and_facility = res6_full_and_facility,
     full_and_facility_mcmle = res6_full_and_facility_mcmle,
-    gwdsp_intercept = res6_full_and_facility_gwdsp.84mcmle
+    gwdsp_intercept = res6_full_and_logn_gwdsp.84mcmle
   ),
   file = "models/03-pooled-ergms-final-results.rds"
 )

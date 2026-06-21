@@ -22,7 +22,7 @@ fits <- readRDS("models/03-pooled-ergms-final-results.rds")
 
 ```{r}
 # Naive 9 cluster (for now)
-cl <- parallel::makeForkCluster(40)
+cl <- parallel::makeForkCluster(5)
 
 set.seed(333)
 ans <- boot_ergm(
@@ -91,7 +91,7 @@ n_terms <- ncol(boot_res)
 boot_res <- boot_res[apply(boot_res[, c(1:(n_terms-2))], 1, \(x) all(abs(x) < 20)), ]
 
 # Generating a regression table
-naive_fit <- fits$full_and_facility_mcmle
+naive_fit <- fits$gwdsp_intercept
 boot_res_mean <- apply(boot_res, 2, mean, na.rm = TRUE)
 boot_res_sd <- apply(boot_res, 2, sd, na.rm = TRUE)
 pvalues <- 2 * (1 - pnorm(abs(coef(naive_fit)) / boot_res_sd))
@@ -102,8 +102,8 @@ pvalues <- 2 * (1 - pnorm(abs(coef(naive_fit)) / boot_res_sd))
 
 texreg::screenreg(
   list(
-    'No intercept (naive)'=fits$gwdsp_with_log_patients,
-    'No intercept (boot)'=fits$gwdsp_with_log_patients
+    'No intercept (naive)'=fits$gwdsp_intercept,
+    'No intercept (boot)'=fits$gwdsp_intercept
     ),
   override.se = list(NULL, boot_res_sd),
   override.pvalues = list(NULL, pvalues),
@@ -116,12 +116,12 @@ texreg::screenreg(
 #| eval: true
 texreg::screenreg(
   list(
-    'No intercept (naive)'=fits$gwdsp_with_log_patients,
-    'No intercept (boot)'=fits$gwdsp_with_log_patients
+    'No intercept (naive)'=fits$gwdsp_intercept,
+    'No intercept (boot)'=fits$gwdsp_intercept
     ),
   override.se = list(NULL, boot_res_sd),
   override.pvalues = list(NULL, pvalues),
-  single.row = TRUE
+  single.row = TRUE,
   file = "models/04d-boot-ergms-results.txt"
 )
 
@@ -131,11 +131,7 @@ saveRDS(
     bootstrap_means = boot_res_mean,
     bootstrap_sds = boot_res_sd,
     pvalues = pvalues,
-    naive_fit = naive_fit,
-    bootstrap_results_no_intercept = boot_res_no_intercept,
-    bootstrap_means_no_intercept = boot_no_intercept_res_mean,
-    bootstrap_sds_no_intercept = boot_no_intercept_res_sd,
-    pvalues_no_intercept = pvalues_no_intercept
+    naive_fit = naive_fit
   ),
   file = "models/04d-boot-ergms-results.rds"
 )

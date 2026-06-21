@@ -31,8 +31,7 @@ The following code chunk loads the relevant model objects and nodal attribute da
 #| label: load-packages-and-data
 # Loading data from the models
 load('data/network93_f2.RData')
-fits <- readRDS("models/03-pooled-ergms-final-results.rds")
-fits_boot <- readRDS("models/04c-boot-ergms-results.rds")
+fits_boot <- readRDS("models/04d-boot-ergms-results.rds")
 source('models/helpers.R')
 ```
 
@@ -233,15 +232,15 @@ The following code chunk displays the results of the final multi-ERGM model fit.
 
 ```{r}
 #| label: final-model
-naive_fit <- fits$gwdsp_with_log_patients
+naive_fit <- fits_boot$naive_fit
 texreg::screenreg(
   # file = "models/04-boot-ergms-results.html",
   list(
     'Naive model'=naive_fit,
     'Bootstrap model'=naive_fit
     ),
-  override.se = list(NULL, fits_boot$bootstrap_sds_no_intercept),
-  override.pvalues = list(NULL, fits_boot$pvalues_no_intercept),
+  override.se = list(NULL, fits_boot$bootstrap_sds),
+  override.pvalues = list(NULL, fits_boot$pvalues),
   single.row = TRUE
 )
 ```
@@ -255,15 +254,9 @@ In this section, we load the pre-computed goodness-of-fit (GOF) statistics for t
 fn <- "models/05-supplemental-materials-gof.rds"
 if (file.exists(fn)) {
   gof_final <- readRDS(fn)
-  gof_with_state <- gof_final$with_state
-  gof_final <- gof_final$final
 }else {
   gof_final <- gofN(naive_fit)
-  gof_with_state <- gofN(fits[[1]])
-  saveRDS(
-    list(with_state = gof_with_state, final = gof_final),
-    fn
-    )
+  saveRDS(gof_final, fn)
 }
 ```
 
@@ -500,7 +493,6 @@ plot_gof <- function(gof_data) {
 }
 
 gg_err <- plot_gof(gof_final)
-gg_err_states <- plot_gof(gof_with_state)
 
 if (interactive()) {
   ggsave( 
@@ -516,7 +508,7 @@ We can also test whether the error in edges prediction can be explained by the s
 
 ```{r}
 set.seed(3312)
-dat_err_edges <- gg_err_states$dat[term == "N.1..edges"]
+dat_err_edges <- gg_err$dat[term == "N.1..edges"]
 
 # Initial fit
 boot_fit <- lm(error ~ factor(state), data = dat_err_edges)
@@ -566,7 +558,7 @@ cat("Degrees of Freedom:  ", df, "\n")
 cat("P-value:             ", omnibus_pval, "\n")
 ```
 
-The resulting output, the Chi2-statistic is 13.51 with a p-value of 0.035, suggesting that the model as a whole is statistically significant.
+The resulting output, the Chi2-statistic is 10.83 with a p-value of 0.093, suggesting that the model as a whole is statistically significant.
 
 ## Simulating and visualizing networks
 
