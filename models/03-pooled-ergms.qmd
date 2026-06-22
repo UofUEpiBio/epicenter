@@ -320,7 +320,7 @@ Although the AIC and BIC suggest that the new model is better, we need to check 
 mcmc.diagnostics(res1_gwb1dsp)
 ```
 
-The omnibus test is not significant, and the same applies to the MCMC joint P-value. The new model behaves significantly better than the previous, even improving in the omnibus test. The model that only includes the log(n_hcp) term performs better than the model with both log(n) and log(n_hcp) (omnibus test).
+Both GWDSP models show substantially improved AIC compared to models without GWDSP. By AIC, the model that includes both log(n) and log(n_hcp) terms (res1_gwb1dsp2) is better (32015.74 vs 32616.60). Similarly, the Joint Geweke p-value for res1_gwb1dsp (only log(n_hcp)) is 0.04, indicating some MCMC mixing issues, while res1_gwb1dsp2 (both terms) has a Joint Geweke of 0.76, indicating better convergence.
 
 Using Stewart, Schweinberger, Bojanowski, and Morris (2019) (as suggested by the reviewer), I estimated the decay parameter directly. I was not able to directly estimate it with the interaction effect as ERGM failed with an error `objfun returned gradient not having all elements finite`.
 
@@ -447,7 +447,7 @@ tabulator(
 )
 ```
 
-Comparing the centered with the uncentered models, the centered model converged quicker (120,553,472 vs 207,552,512) and had better convergence properties (Omni test of 1e-8 and Geweke test joint 0.54 vs Omni test of 2e-35 Geweke test joint 0.22). It is important to note that both models yield roughly the same results in terms of estimated coefficients. This is mostly an MCMC artifact used to improve the mixing of the Markov chain.
+Comparing the centered with the uncentered models, the centered model converged quicker (120,553,472 vs 207,552,512) and had better convergence properties (Joint Geweke 0.83 vs 0.31). It is important to note that both models yield roughly the same results in terms of estimated coefficients. This is mostly an MCMC artifact used to improve the mixing of the Markov chain.
 
 The model with both log(n) and log(n_hcp) terms performs worse if we look at the omnibus test. The overall fit drops, but, perhaps, we can simply run it for a bit longer (both) and assess if we can improve the fit:
 
@@ -623,7 +623,7 @@ tabulator(
 )
 ```
 
-The model that excludes the state term (facility) is significantly better than the model with it. This is also true if we compare the models using the b\*starmix vs the b\*nodematch terms. For the next batch, we will try to re-estimate model using the GWDSP term. Before we do such, let's first evaluate the individual counts of each variable to assess their correlatedness
+Among the b*nodematch models, the model that includes the state term (facility) is better than the model without it, both by AIC (32230.74 vs 32318.71) and by the Joint Geweke convergence diagnostic (0.49 vs 0.13). The b*starmix model with GWDSP (res3_b2starmix_terms_gwdsp, AIC 31727.30) shows the best fit overall in this comparison. For the next batch, we will try to re-estimate the model using the GWDSP term combined with b*nodematch terms. Before we do such, let's first evaluate the individual counts of each variable to assess their correlatedness
 
 ```{r}
 gwdsp_and_nodematch <- lapply(model_data$nets, \(net) {

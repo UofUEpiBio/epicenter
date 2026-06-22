@@ -25,7 +25,7 @@ For terms wrapped in `ergm.multi::N()`, the subset argument is applied at the ne
 
 ## Summary stats
 
-The following code chunk loads the relevant model objects and nodal attribute data required for the subsequent analyses. It also prepares a summary of the presence of multidrug-resistant organisms (MDROs) across the networks, which is a key covariate in the study. The summary_formula function is then used to compute the observed values for each model term, providing a basis for later comparison with model-based expectations.
+The following code chunk loads the relevant model objects and nodal attribute data required for the subsequent analyses. It loads the fitted multi-ERGM object (`fits_boot`) as well as the helper functions and network data used throughout this document.
 
 ```{r}
 #| label: load-packages-and-data
@@ -228,7 +228,7 @@ There is a clear linear association with size, so this variable can be, in princ
 
 ## Final model
 
-The following code chunk displays the results of the final multi-ERGM model fit. The `screenreg` function from the `texreg` package is used to present the estimated coefficients and their standard errors in a clear, publication-ready format.
+The following code chunk displays the results of the final multi-ERGM model fit. The `screenreg` function from the `texreg` package presents both the naive model estimates and the bootstrap-corrected standard errors side by side. Note that several terms that are statistically significant under the naive model (e.g., `N(1)~edges`, `N(log(n_hcp))~edges`, `b1factor.type.CNA`, `b1nodematch.type.Other`, and `b1nodematch.type.RT`) lose significance when the larger, bootstrap-corrected standard errors are used, underscoring the importance of accounting for within-cluster dependence.
 
 ```{r}
 #| label: final-model
@@ -408,7 +408,7 @@ if (interactive())
   dev.off()
 ```
 
-We further investigate model fit by examining the mean squared error (MSE) of the Pearson residuals for each network. This approach highlights the networks that are most poorly fitted by the model, allowing for targeted assessment of potential sources of misfit and guiding future model refinement.
+We further investigate model fit by examining the square root of the absolute standardized Pearson residuals (√|residual|) for the edges term across networks. This approach highlights the networks that are most poorly fitted by the model, allowing for targeted assessment of potential sources of misfit and guiding future model refinement. Networks with a √|residual| exceeding 2 are labeled as outliers.
 
 ```{r}
 #| label: regress-networks
@@ -558,7 +558,7 @@ cat("Degrees of Freedom:  ", df, "\n")
 cat("P-value:             ", omnibus_pval, "\n")
 ```
 
-The resulting output, the Chi2-statistic is 10.83 with a p-value of 0.093, suggesting that the model as a whole is statistically significant.
+The resulting output, the Chi2-statistic is 10.84 (df = 6) with a p-value of 0.093, suggesting that there is no statistically significant difference in prediction errors across states at the conventional α = 0.05 level, although the result is marginally borderline.
 
 ## Simulating and visualizing networks
 
