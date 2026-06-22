@@ -12,18 +12,16 @@ author:
   - Kristina Stratford
   - Matthew H. Samore
 date: 2025-04-01
-date-modified: 2025-05-15
+date-modified: 2026-06-22
 embed-resources: true
 ---
 
 
-This document presents the supplemental materials for the main manuscript, focusing on the goodness-of-fit (GOF) assessment and diagnostics for the final multi-ERGM model. The following sections provide detailed explanations and outputs to facilitate reproducibility and transparency for readers interested in the modeling process and results.
+This document presents supplemental analyses for the final multi-ERGM model in the main manuscript. The emphasis is on model specification, goodness-of-fit (GOF), MCMC diagnostics, bootstrap-based uncertainty estimates, and post-estimation checks of residual variation across states.
 
-The code chunks below are annotated to clarify their purpose and the rationale behind each step, following best practices for reporting ERGM-based social network analyses.
+The code chunks below are annotated to clarify the purpose of each step and to make the reported diagnostics reproducible.
 
-For terms wrapped in `ergm.multi::N()`, the subset argument is applied at the network level. For example, in `N(~b2starmix(2, "Nurse"), subset = Nurse)`, "Nurse" inside `b2starmix()` denotes the vertex-level HCW type indicator, whereas the object Nurse supplied to subset is a numeric vector of network IDs. This vector contains networks with at least two nurse HCWs, so the nurse-specific 2-star mixing term is evaluated only for networks in which that statistic is defined and informative. Similar network-index subsets were constructed for other attribute-specific terms.
-
-## Summary stats
+## Setup
 
 The following code chunk loads the relevant model objects and nodal attribute data required for the subsequent analyses. It loads the fitted multi-ERGM object (`fits_boot`) as well as the helper functions and network data used throughout this document.
 
@@ -35,7 +33,9 @@ fits_boot <- readRDS("models/04d-boot-ergms-results.rds")
 source('models/helpers.R')
 ```
 
-## Clustering sizes (do we want to group them all?)
+## Network size by state
+
+The first descriptive check examines how network size varies by state. This is useful because the final model includes log-size adjustments, and because uneven state-level size distributions can make residual diagnostics harder to interpret.
 
 ```{r}
 #| label: cluster-sizes
@@ -67,7 +67,7 @@ ggplot(sizes, aes(y = state, x = size)) +
   ) +
   labs(
     x = "Network Size",
-    y = "Count",
+    y = "State",
     title = "Distribution of Network Sizes by State"
   ) +
   theme_minimal()
@@ -76,7 +76,7 @@ if (interactive())
   ggsave("models/05-supplemental-materials-cluster-sizes.png", width = 10, height = 6)
 ```
 
-Maryland has only 6 networks and the sizes are highly irregular. Let's take a look at how network size compares with the network density
+Maryland contributes only six networks, and its network sizes are more irregular than those of the other states. The next plot compares network size with the observed number of ties.
 
 ```{r}
 ggplot(sizes, aes(x = size, y = nties)) +
@@ -94,7 +94,9 @@ if (interactive())
   ggsave("models/05-supplemental-materials-nties-vs-size.png", width = 10, height = 6)
 ```
 
-## Degree distribution across types of nodes and sizes
+## Degree distribution by node type and network size
+
+The following plots summarize degree distributions by state, network size, and node type. These descriptive checks help determine whether heterogeneity in connectivity is mostly explained by network size and composition or whether additional model terms may be needed.
 
 ```{r}
 #| label: degree-distribution
@@ -154,10 +156,10 @@ if (interactive())
   ggsave("models/05-supplemental-materials-degree-distribution.png", width = 6, height = 10)
 ```
 
-We can also compute the statistics
+The table below summarizes HCP degree after scaling by the actual network size. This puts degree values from networks of different sizes on a more comparable scale.
 
 ```{r}
-degs[, size_num := as.numeric(size)]
+degs[, size_num := as.numeric(as.character(size))]
 degs[is_actor == "HCP", .(
   mean_degree = mean(degree/size_num),
   median_degree = median(degree/size_num),
@@ -187,8 +189,8 @@ degs |>
   facet_wrap(~type, scales = "free_y", ncol = 2) +
   labs(
     x = "Degree",
-    y = "Network Size",
-    title = "Degree distribution across node types and network sizes"
+    y = "State",
+    title = "Degree distribution by node type and state"
   ) +
   theme_minimal()
 
@@ -196,7 +198,7 @@ if (interactive())
   ggsave("models/05-supplemental-materials-degree-distribution-by-type.png", width = 6, height = 6)
 ```
 
-Let's now look at the concurrent distribution across sizes and states.
+The next plot examines resident concurrency, measured with `b2concurrent()`, across network sizes and states.
 
 ```{r}
 dat_b2concurrent <- lapply(networks, \(n) {
@@ -218,36 +220,46 @@ dat_b2concurrent[, net_id := factor(net_id, levels = unique(net_id))]
 dat_b2concurrent |>
   ggplot(aes(y = size, x=b2concurrent, color = state)) +
   geom_jitter() +
-  geom_smooth(method = "lm")
+  geom_smooth(method = "lm") +
+  labs(
+    x = "Resident concurrency",
+    y = "Network Size",
+    color = "State",
+    title = "Resident concurrency vs network size"
+  ) +
+  theme_minimal()
 
 if (interactive())
   ggsave("models/05-supplemental-materials-b2concurrent.png", width = 6, height = 6)
 ```
 
-There is a clear linear association with size, so this variable can be, in principle, captured without scaling by the log(n hcp).
+The relationship with network size is approximately linear. This suggests that the model can capture much of this variation through size-adjusted terms, without requiring an additional `log(n_hcp)` adjustment for this statistic.
 
 ## Final model
 
-The following code chunk displays the results of the final multi-ERGM model fit. The `screenreg` function from the `texreg` package presents both the naive model estimates and the bootstrap-corrected standard errors side by side. Note that several terms that are statistically significant under the naive model (e.g., `N(1)~edges`, `N(log(n_hcp))~edges`, `b1factor.type.CNA`, `b1nodematch.type.Other`, and `b1nodematch.type.RT`) lose significance when the larger, bootstrap-corrected standard errors are used, underscoring the importance of accounting for within-cluster dependence.
+The final model includes log-size adjustments for the edges term and for the geometrically weighted dyadwise shared-partner term (`gwb1dsp`). Specifically, the model allows both terms to vary with centered log counts of residents and HCWs. The table compares the naive model-based standard errors with bootstrap-corrected standard errors from the retained bootstrap fits (`r nrow(fits_boot$bootstrap_results)` of 200 requested resamples).
+
+Several terms that are statistically significant under the naive model (for example, `N(1)~edges`, `N(log(n_hcp))~edges`, `b1factor.type.CNA`, `b1nodematch.type.Other`, and `b1nodematch.type.RT`) lose significance when the larger bootstrap standard errors are used. This pattern underscores the importance of accounting for non-independence across networks when interpreting uncertainty.
 
 ```{r}
 #| label: final-model
 naive_fit <- fits_boot$naive_fit
+naive_texreg <- texreg::extract(naive_fit)
 texreg::screenreg(
   # file = "models/04-boot-ergms-results.html",
   list(
     'Naive model'=naive_fit,
     'Bootstrap model'=naive_fit
     ),
-  override.se = list(NULL, fits_boot$bootstrap_sds),
-  override.pvalues = list(NULL, fits_boot$pvalues),
+  override.se = list(naive_texreg@se, fits_boot$bootstrap_sds),
+  override.pvalues = list(naive_texreg@pvalues, fits_boot$pvalues),
   single.row = TRUE
 )
 ```
 
-## Loading the GOF
+## Goodness-of-fit diagnostics
 
-In this section, we load the pre-computed goodness-of-fit (GOF) statistics for the final model. These statistics were generated during the model fitting process and are essential for evaluating how well the model reproduces key features of the observed networks. The code below loads the GOF object and produces diagnostic plots for a selection of network statistics, allowing for visual assessment of model fit across multiple dimensions.
+This section loads the precomputed goodness-of-fit statistics for the final model. These statistics compare observed network features with values generated under the fitted model, providing a direct check of whether the model reproduces the main structural features of the observed networks.
 
 ```{r}
 #| label: load-gof
@@ -278,7 +290,7 @@ op <- par(
   )
 # figs <- autoplot(gof12_93, main = "{name} - {type}", id.n = 5)
 plot(
-  gof_final, main = "{name}\n{type}", id.n = 5, , which = 1,
+  gof_final, main = "{name}\n{type}", id.n = 5, which = 1,
   xlab = ""
   )
 par(op)
@@ -288,7 +300,7 @@ if (interactive())
 
 ```
 
-The next section explores whether the model could be improved by comparing observed versus predicted values for each statistic, rather than focusing solely on error terms. This provides a more direct assessment of the model's predictive accuracy for each network feature.
+As a complementary view, the next figure compares observed and fitted values for each statistic. Points close to the red 45-degree line indicate statistics that are well reproduced by the model.
 
 ```{r}
 #| label: gof-obs-vs-fitted
@@ -297,10 +309,10 @@ The next section explores whether the model could be improved by comparing obser
 #| fig-width: 8
 vars <- names(gof_final) 
 
-# Removing the b1dsp* & offset terms variables
+# Keep interpretable fitted statistics and exclude offsets.
 vars <- vars[!grepl("b1dsp|b.degree0", vars)]
 
-# Generating fancy dataset
+# Assemble observed and fitted values for plotting.
 plot_data <- lapply(vars, \(v) {
   data.table(
     variable = v,
@@ -310,7 +322,7 @@ plot_data <- lapply(vars, \(v) {
 }) |>
   rbindlist()
 
-# Re-labeling the variables for better readability
+# Re-label variables for readability.
 # - b*factor.[Nurse]: Factor(Nurse) 
 # - b*nodematch[type][Nurse]: Node match (Nurse)
 # - b*nodematch.mdro.Yes: Node match (MDRO=Yes)
@@ -329,9 +341,9 @@ if (interactive())
 
 ```
 
-## Visualizing some features of the networks
+## Observed network features
 
-This section provides descriptive visualizations of key network features across the observed networks. We summarize and plot the distribution of network sizes, the number of healthcare workers (HCWs), and the mean degree of HCWs. These plots help contextualize the structure and composition of the networks under study, offering insight into the heterogeneity present in the data and supporting interpretation of the model results.
+This section provides additional descriptive visualizations of the observed networks. We summarize network size, the number of healthcare workers (HCWs), and mean HCW degree to contextualize the heterogeneity that the final model is intended to capture.
 
 ```{r}
 #| label: network-feats
@@ -394,7 +406,7 @@ ggsave("models/05-supplemental-materials-network-feats.png", width = 9*.75, heig
 
 ## MCMC diagnostics
 
-To assess the adequacy of the Markov Chain Monte Carlo (MCMC) estimation procedure, we present standard MCMC diagnostic plots for the final model.
+To assess the adequacy of the Markov Chain Monte Carlo (MCMC) estimation procedure, we present standard MCMC diagnostic plots for the final model. These plots are used to assess mixing, stationarity, and whether the simulated statistics are centered near the observed statistics.
 
 ```{r}
 #| label: mcmc-diagnostics
@@ -408,7 +420,7 @@ if (interactive())
   dev.off()
 ```
 
-We further investigate model fit by examining the square root of the absolute standardized Pearson residuals (√|residual|) for the edges term across networks. This approach highlights the networks that are most poorly fitted by the model, allowing for targeted assessment of potential sources of misfit and guiding future model refinement. Networks with a √|residual| exceeding 2 are labeled as outliers.
+We further investigate model fit by examining the square root of the absolute standardized Pearson residuals, `sqrt(|residual|)`, for the edges term across networks. This transformation makes large residuals easier to see while preserving their relative magnitude. Networks with transformed residuals exceeding 2 are labeled as potential outliers.
 
 ```{r}
 #| label: regress-networks
@@ -418,16 +430,16 @@ We further investigate model fit by examining the square root of the absolute st
 plot_gof <- function(gof_data) {
   errs <- lapply(gof_data, "[[", "pearson")
 
-  # Removing the b1dsp* & offset terms variables
-  to_exclude <- which(!grepl("b1dsp|b.degree", names(errs)))
-  errs <- errs[to_exclude]
+  # Keeping interpretable fitted statistics and excluding offsets.
+  terms_to_keep <- which(!grepl("b1dsp|b.degree", names(errs)))
+  errs <- errs[terms_to_keep]
 
   errs <- as.data.frame(errs) |>
     data.table()
 
   # Obs
   obs_val <- lapply(gof_data, "[[", "observed")
-  obs_val <- obs_val[to_exclude]
+  obs_val <- obs_val[terms_to_keep]
 
   obs_val <- as.data.frame(obs_val) |>
     data.table()
@@ -436,7 +448,7 @@ plot_gof <- function(gof_data) {
 
   # Fitted
   fitted_val <- lapply(gof_data, "[[", "fitted")
-  fitted_val <- fitted_val[to_exclude]
+  fitted_val <- fitted_val[terms_to_keep]
 
   fitted_val <- as.data.frame(fitted_val) |>
     data.table()
@@ -475,11 +487,10 @@ plot_gof <- function(gof_data) {
       y = expression(sqrt(abs("Std. Pearson Res. (edges)"))),
       color = "State"
     ) +
-    # Adding a lowess line by state
+    # Adding a linear trend by state
     geom_smooth(aes(color=state), se = FALSE, method="lm") +
     theme_minimal() +
-    # Need to label the outlier observation that is outside the value 2
-    # using ggrepel
+    # Label potential outliers using ggrepel.
     geom_text_repel(
       aes(label = ifelse(error > 2, id, ""), color=state),
       show.legend = FALSE
@@ -504,7 +515,7 @@ if (interactive()) {
   print(gg_err$fig)
 ```
 
-We can also test whether the error in edges prediction can be explained by the state of the network (trying to find significant differences in the error across different states). Since we know that the networks are not idependent, we will use a bootstrap approach to account for this:
+We also test whether transformed edge-count residuals vary systematically by state. Because the network-level residuals may not be independent, we use a bootstrap regression to estimate uncertainty for the state contrasts.
 
 ```{r}
 set.seed(3312)
@@ -558,11 +569,11 @@ cat("Degrees of Freedom:  ", df, "\n")
 cat("P-value:             ", omnibus_pval, "\n")
 ```
 
-The resulting output, the Chi2-statistic is 10.84 (df = 6) with a p-value of 0.093, suggesting that there is no statistically significant difference in prediction errors across states at the conventional α = 0.05 level, although the result is marginally borderline.
+The omnibus Wald test gives a chi-square statistic of 10.84 (df = 6, p = 0.0936). Thus, there is no statistically significant evidence at alpha = 0.05 that edge-count prediction errors differ by state. This supports the interpretation that the final model captures state-level variation in edge counts reasonably well, even without an explicit state interaction, while leaving open the possibility of weak residual state differences.
 
 ## Simulating and visualizing networks
 
-Finally, we compare simulated networks generated from the fitted model to the observed networks. Simulating networks based on this model could be a powerful tool for simulation studies. We use the `netplot` R package to visualize the networks.
+Finally, we compare networks simulated from the fitted model with selected observed networks. This visual comparison is not a formal GOF test, but it provides an intuitive check of whether simulated networks resemble the observed networks in size, bipartite structure, and overall connectivity. We use the `netplot` R package for visualization.
 
 ```{r}
 #| label: simulate-networks
@@ -619,3 +630,56 @@ gridExtra::marrangeGrob(
 if (interactive())
   dev.off()
 ```
+
+## Alternative GWDSP specifications
+
+The final table compares three related model specifications. The estimates are read from the saved model fits in `models/03-pooled-ergms-rds/`, and the reported standard errors and p-values use the corresponding bootstrap summaries saved by the `04*.rds` bootstrap files.
+
+```{r}
+#| label: alternative-gwdsp-specifications
+model_comparison <- list(
+  "Baseline model" = list(
+    fit = readRDS("models/03-pooled-ergms-rds/res4_gwdsp_var_bnodematch.rds"),
+    boot = readRDS("models/04b-boot-ergms-results.rds")
+  ),
+  "Intercept with state model" = list(
+    fit = readRDS("models/03-pooled-ergms-rds/res6_full_and_facility_mcmle.rds"),
+    boot = readRDS("models/04c-boot-ergms-results.rds")
+  ),
+  "GWDSP x log(n) model" = list(
+    fit = readRDS("models/03-pooled-ergms-rds/res6_full_and_logn_gwdsp.84mcmle.rds"),
+    boot = readRDS("models/04d-boot-ergms-results.rds")
+  )
+)
+
+check_bootstrap_alignment <- function(model_name, model_fit, boot_fit) {
+  coef_names <- names(coef(model_fit))
+
+  if (!identical(coef_names, names(boot_fit$bootstrap_sds))) {
+    stop("Bootstrap standard errors do not match coefficient names for ", model_name)
+  }
+
+  if (!identical(coef_names, names(boot_fit$pvalues))) {
+    stop("Bootstrap p-values do not match coefficient names for ", model_name)
+  }
+
+  if (!isTRUE(all.equal(coef(model_fit), coef(boot_fit$naive_fit), tolerance = 1e-8))) {
+    stop("Model estimates do not match the bootstrap naive fit for ", model_name)
+  }
+}
+
+invisible(Map(
+  f = check_bootstrap_alignment,
+  model_name = names(model_comparison),
+  model_fit = lapply(model_comparison, `[[`, "fit"),
+  boot_fit = lapply(model_comparison, `[[`, "boot")
+))
+
+texreg::screenreg(
+  lapply(model_comparison, `[[`, "fit"),
+  override.se = lapply(model_comparison, \(x) x$boot$bootstrap_sds),
+  override.pvalues = lapply(model_comparison, \(x) x$boot$pvalues),
+  single.row = TRUE
+)
+```
+
