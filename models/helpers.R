@@ -154,6 +154,114 @@ tabulator <- function(x, ..., tmethod = texreg::screenreg) {
 
 }
 
+#' Prepare and plot GOF residuals for a selected statistic
+#'
+#' Converts the output of \code{gofN()} into a long \code{data.table},
+#' attaches network-level metadata, and returns a scatterplot of transformed
+#' Pearson residuals for a selected statistic against a network attribute.
+#'
+#' @param gof_data A goodness-of-fit object returned by \code{gofN()}.
+#' @param networks A list of \code{network} objects matching \code{gof_data}.
+#' @param term Character scalar naming the GOF statistic to plot.
+#' @param x Character scalar naming the network-level variable to use on the
+#'   x-axis. Must be one of \code{"size"}, \code{"n_hcp"},
+#'   or \code{"n_resident"}.
+#' @param drop Pattern used to exclude GOF terms before reshaping. Defaults to
+#'   \code{"b\.degree"} to remove offset-like degree-zero terms.
+#' @param ylab Optional y-axis label passed to \code{labs()}.
+#' @param outlier_threshold Numeric threshold above which network IDs are
+#'   labeled in the plot.
+#' @return A list with two elements: \code{fig}, the ggplot object, and
+#'   \code{dat}, the long-format \code{data.table} used to build it.
+plot_gof <- function(
+  gof_data,
+  networks,
+  term,
+  x = "size",
+  drop = "b\\.degree",
+  ylab = NULL,
+  outlier_threshold = 2
+) {
+
+  errs <- lapply(gof_data, "[[", "pearson")
+  terms_to_keep <- !grepl(drop, names(errs))
+
+  errs <- as.data.frame(errs[terms_to_keep]) |>
+    data.table()
+
+  obs_val <- as.data.frame(lapply(gof_data, "[[", "observed")[terms_to_keep]) |>
+    data.table()
+  obs_val[, id := seq_len(.N)]
+
+  fitted_val <- as.data.frame(lapply(gof_data, "[[", "fitted")[terms_to_keep]) |>
+    data.table()
+  fitted_val[, id := seq_len(.N)]
+
+  errs[, id := seq_len(.N)]
+  errs[, state := sapply(networks, \(net) unique(net %v% "state"))]
+  errs[, size := sapply(networks, network.size)]
+  errs[, n_hcp := sapply(networks, \(net) sum(net %v% "is_actor"))]
+  errs[, n_resident := sapply(networks, \(net) sum(!net %v% "is_actor"))]
+
+  errs <- melt(
+    errs,
+    id.vars = c("id", "state", "size", "n_hcp", "n_resident"),
+    variable.name = "term",
+    value.name = "error"
+  )
+
+  obs_val <- melt(
+    obs_val,
+    id.vars = "id",
+    variable.name = "term",
+    value.name = "observed"
+  )
+
+  fitted_val <- melt(
+    fitted_val,
+    id.vars = "id",
+    variable.name = "term",
+    value.name = "fitted"
+  )
+
+  errs <- merge(errs, obs_val, by = c("id", "term"))
+  errs <- merge(errs, fitted_val, by = c("id", "term"))
+  errs[, error := sqrt(abs(error))]
+
+  if (!term %in% errs$term) {
+    stop(
+      "plot_gof: term '", term, "' not found. Available terms include: ",
+      paste(unique(errs$term), collapse = ", ")
+    )
+  }
+
+  if (!x %in% c("size", "n_hcp", "n_resident")) {
+    stop("plot_gof: x must be one of 'size', 'n_hcp', or 'n_resident'.")
+  }
+
+  term_value <- term
+  fig <- ggplot(errs[term == term_value], aes_string(x = x, y = "error")) +
+    geom_jitter(aes(color = state), height = 0) +
+    geom_smooth(aes(color = state), se = FALSE, method = "lm") +
+    geom_text_repel(
+      aes(label = ifelse(error > outlier_threshold, id, ""), color = state),
+      show.legend = FALSE
+    ) +
+    labs(
+      x = switch(
+        x,
+        size = "Network Size",
+        n_hcp = "Number of HCWs",
+        n_resident = "Number of Residents"
+      ),
+      y = ylab,
+      color = "State"
+    ) +
+    theme_minimal()
+
+  list(fig = fig, dat = errs)
+}
+
 # Session-level registry: maps output name -> hash of its call expression.
 # Created once when helpers.R is sourced; persists for the session.
 .with_restore_registry <- new.env(hash = TRUE, parent = emptyenv())

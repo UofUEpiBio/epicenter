@@ -30,7 +30,92 @@ The following code chunk loads the relevant model objects and nodal attribute da
 # Loading data from the models
 load('data/network93_f2.RData')
 fits_boot <- readRDS("models/04d-boot-ergms-results.rds")
+naive_fit <- fits_boot$naive_fit
 source('models/helpers.R')
+```
+
+## Observed sufficient statistics in the final model
+
+The table below reports the observed value of each modeled sufficient statistic, aggregated across the 93 observed networks and averaged per network. For the `N(...)` terms, the totals are the size-weighted statistics used directly by the fitted multi-ERGM, and the range is computed across the per-network observed contributions to each statistic.
+
+```{r}
+#| label: observed-sufficient-statistics
+obs_stats <- summary(formula(naive_fit))
+stat_order <- names(obs_stats)
+stat_order <- stat_order[!stat_order %in% c("offset(b1degree0)", "offset(b2degree0)")]
+
+log_n_patients <- sapply(networks, \(net) {
+  log(network.size(net) - sum(net %v% "is_actor"))
+})
+log_n_hcp <- sapply(networks, \(net) {
+  log(sum(net %v% "is_actor"))
+})
+
+mean_log_patients <- mean(log_n_patients)
+mean_log_hcp <- mean(log_n_hcp)
+
+per_network_stats <- lapply(seq_along(networks), \(i) {
+  net <- networks[[i]]
+
+  edges <- unname(summary(net ~ edges))
+  gwb1dsp <- unname(summary(net ~ gwb1dsp(0.84, fixed = TRUE)))
+
+  c(
+    "N(1)~edges" = edges,
+    "N(I(log(n_patients) - mean(log(n_patients))))~edges" =
+      unname(edges * (log_n_patients[i] - mean_log_patients)),
+    "N(I(log(n_hcp) - mean(log(n_hcp))))~edges" =
+      unname(edges * (log_n_hcp[i] - mean_log_hcp)),
+    summary(net ~ b1factor("type", levels = c("CNA", "Nurse", "PT/OT", "RT"))),
+    "N(1)~gwb1dsp.fixed.0.84" = gwb1dsp,
+    "N(I(log(n_patients) - mean(log(n_patients))))~gwb1dsp.fixed.0.84" =
+      unname(gwb1dsp * (log_n_patients[i] - mean_log_patients)),
+    "N(I(log(n_hcp) - mean(log(n_hcp))))~gwb1dsp.fixed.0.84" =
+      unname(gwb1dsp * (log_n_hcp[i] - mean_log_hcp)),
+    summary(net ~ b2factor("dialysis", levels = "Yes")),
+    summary(net ~ b2factor("wound_care", levels = "Yes")),
+    summary(net ~ b2factor("bedridden", levels = "Yes")),
+    summary(net ~ b2factor("ventilator", levels = "Yes")),
+    summary(net ~ b2factor("mdro", levels = "Yes")),
+    summary(net ~ b2nodematch("diabetes", alpha = 0.25, diff = TRUE, levels = "Yes")),
+    summary(net ~ b2nodematch("mdro", alpha = 0.25, diff = TRUE, levels = "Yes")),
+    summary(net ~ b2nodematch("ventilator", alpha = 0.25, diff = TRUE, levels = "Yes")),
+    summary(net ~ b2nodematch("wound_care", alpha = 0.25, diff = TRUE, levels = "Yes")),
+    summary(net ~ b2nodematch("bedridden", alpha = 0.25, diff = TRUE, levels = "Yes")),
+    summary(net ~ b1nodematch(
+      "type",
+      alpha = 0.25,
+      diff = TRUE,
+      levels = c("CNA", "Nurse", "Other", "PT/OT", "RT")
+    ))
+  )[stat_order]
+}) |>
+  do.call(what = rbind) |>
+  as.data.table()
+
+obs_stats_tbl <- data.table(
+  statistic = stat_order,
+  observed_total = as.numeric(obs_stats[stat_order])
+)
+
+obs_stats_tbl[, observed_average := observed_total / length(networks)]
+obs_stats_tbl[, range := sprintf(
+  "[%.2f, %.2f]",
+  sapply(statistic, \(x) min(per_network_stats[[x]], na.rm = TRUE)),
+  sapply(statistic, \(x) max(per_network_stats[[x]], na.rm = TRUE))
+)]
+
+obs_stats_tbl |>
+  knitr::kable(
+    caption = "Observed sufficient statistics in the final multi-ERGM",
+    col.names = c(
+      "Statistic",
+      "Total",
+      "Network Average",
+      "Range"
+    ),
+    digits = 2
+  )
 ```
 
 ## Network size by state
@@ -420,106 +505,56 @@ if (interactive())
   dev.off()
 ```
 
-We further investigate model fit by examining the square root of the absolute standardized Pearson residuals, `sqrt(|residual|)`, for the edges term across networks. This transformation makes large residuals easier to see while preserving their relative magnitude. Networks with transformed residuals exceeding 2 are labeled as potential outliers.
+We further investigate model fit by examining the square root of the absolute standardized Pearson residuals, `sqrt(|residual|)`, for the baseline edges and `gwb1dsp` terms across networks. This transformation makes large residuals easier to see while preserving their relative magnitude. Networks with transformed residuals exceeding 2 are labeled as potential outliers.
 
 ```{r}
 #| label: regress-networks
-#| fig-height: 3
+#| fig-height: 6
 #| fig-width: 8
-# Retrieving the errors
-plot_gof <- function(gof_data) {
-  errs <- lapply(gof_data, "[[", "pearson")
+term_edges <- make.names(grep("^N\\(1\\)~edges$", names(gof_final), value = TRUE))
+term_gwb1dsp <- make.names(grep("^N\\(1\\)~gwb1dsp", names(gof_final), value = TRUE))
 
-  # Keeping interpretable fitted statistics and excluding offsets.
-  terms_to_keep <- which(!grepl("b1dsp|b.degree", names(errs)))
-  errs <- errs[terms_to_keep]
+stopifnot(length(term_edges) == 1, length(term_gwb1dsp) == 1)
 
-  errs <- as.data.frame(errs) |>
-    data.table()
+term_edges <- term_edges[[1]]
+term_gwb1dsp <- term_gwb1dsp[[1]]
 
-  # Obs
-  obs_val <- lapply(gof_data, "[[", "observed")
-  obs_val <- obs_val[terms_to_keep]
+gg_err <- plot_gof(
+  gof_final,
+  networks,
+  term = term_edges,
+  ylab = expression(sqrt(abs("Std. Pearson Res. (edges)")))
+)
 
-  obs_val <- as.data.frame(obs_val) |>
-    data.table()
+gg_gwb1dsp <- plot_gof(
+  gof_final,
+  networks,
+  term = term_gwb1dsp,
+  ylab = expression(sqrt(abs("Std. Pearson Res. (gwb1dsp)")))
+)
 
-  obs_val[, id := 1:.N]
-
-  # Fitted
-  fitted_val <- lapply(gof_data, "[[", "fitted")
-  fitted_val <- fitted_val[terms_to_keep]
-
-  fitted_val <- as.data.frame(fitted_val) |>
-    data.table()
-
-  fitted_val[, id := 1:.N]
-
-  # Getting the state and size of each network
-  errs$id <- 1:length(errs[[1]])
-  errs$state <- sapply(networks, \(x) {unique(x %v% "state")})
-  errs$size <- sapply(networks, network.size)
-  errs$n_hcp <- sapply(networks, \(x) {sum(x %v% "is_actor")})
-  errs$n_resident <- sapply(networks, \(x) {sum(!x %v% "is_actor")})
-
-  # Reshape long (from wide)
-  errs <- melt(
-    errs, id.vars = c("id", "state", "size", "n_hcp", "n_resident"),
-    variable.name = "term", value.name = "error"
-    )
-
-  obs_val <- melt(obs_val, id.vars = c("id"), variable.name = "term", value.name = "observed")
-
-  fitted_val <- melt(fitted_val, id.vars = c("id"), variable.name = "term", value.name = "fitted")
-
-  errs <- merge(errs, obs_val, by = c("id", "term"))
-  errs <- merge(errs, fitted_val, by = c("id", "term"))
-
-  # Turning into the sqrt(abs)
-  errs$error <- sqrt(abs(errs$error))
-
-  fig <- ggplot(errs[term == "N.1..edges"], aes(x = size, y = error)) +
-    geom_jitter(aes(color = state), height = 0) +
-    labs(
-      x = "Network Size",
-      # The y-label should be the math expression
-      # for the sqrt(abs(Std. Pearson Residual))
-      y = expression(sqrt(abs("Std. Pearson Res. (edges)"))),
-      color = "State"
-    ) +
-    # Adding a linear trend by state
-    geom_smooth(aes(color=state), se = FALSE, method="lm") +
-    theme_minimal() +
-    # Label potential outliers using ggrepel.
-    geom_text_repel(
-      aes(label = ifelse(error > 2, id, ""), color=state),
-      show.legend = FALSE
-      )
-
-  list(
-    fig = fig,
-    dat = errs
-  )
-
-}
-
-gg_err <- plot_gof(gof_final)
+fig_gof_residuals <- patchwork::wrap_plots(
+  gg_err$fig,
+  gg_gwb1dsp$fig,
+  ncol = 1
+)
 
 if (interactive()) {
-  ggsave( 
-    "models/05-supplemental-materials-errs.pdf", 
-    plot = gg_err$fig,
-    width = 8, height = 3
-    )
-} else
-  print(gg_err$fig)
+  ggsave(
+    "models/05-supplemental-materials-errs.pdf",
+    plot = fig_gof_residuals,
+    width = 8, height = 6
+  )
+} else {
+  print(fig_gof_residuals)
+}
 ```
 
 We also test whether transformed edge-count residuals vary systematically by state. Because the network-level residuals may not be independent, we use a bootstrap regression to estimate uncertainty for the state contrasts.
 
 ```{r}
 set.seed(3312)
-dat_err_edges <- gg_err$dat[term == "N.1..edges"]
+dat_err_edges <- gg_err$dat[term == term_edges]
 
 # Initial fit
 boot_fit <- lm(error ~ factor(state), data = dat_err_edges)
