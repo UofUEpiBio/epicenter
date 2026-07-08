@@ -14,8 +14,8 @@ library(parallel)
 #' - `nets`: A list of the selected networks.
 #' - `filters`: A list of index vectors with the needed filtering for
 #' the ERGMs
-#' - `n_hcp`: Number of healthcare providers per network.
-#' - `n_patients`: Number of patients per network.
+#' - `n_hcp`: Number of health care workers per network.
+#' - `n_patients`: Number of residents per network (legacy object name).
 #' - `facility_state`: Character vector with facilities' states. 
 set_ergm <- function(
   nets,
@@ -246,9 +246,9 @@ plot_gof <- function(
   }
 
   term_value <- term
-  fig <- ggplot(errs[term == term_value], aes_string(x = x, y = "error")) +
+  fig <- ggplot(errs[term == term_value], aes(x = .data[[x]], y = error)) +
     geom_jitter(aes(color = state), height = 0) +
-    geom_smooth(aes(color = state), se = FALSE, method = "lm") +
+    geom_smooth(aes(color = state), se = FALSE, method = "lm", formula = y ~ x) +
     geom_text_repel(
       aes(label = ifelse(error > outlier_threshold, id, ""), color = state),
       show.legend = FALSE

@@ -26,7 +26,7 @@ help:
 	@echo "  MAC    : Set to use podman on MacOS (default: unset)"
 
 render:
-	quarto render models/2023-08-26-bipartite-ergms_multi.qmd
+	quarto render models/05-supplemental-materials.qmd
 
 container_build:
 	$(ENGINE) build $(PLATFORM) -t epicenter -f .devcontainer/Containerfile
