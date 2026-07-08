@@ -203,26 +203,32 @@ plot_gof <- function(
   errs[, n_hcp := sapply(networks, \(net) sum(net %v% "is_actor"))]
   errs[, n_resident := sapply(networks, \(net) sum(!net %v% "is_actor"))]
 
-  errs <- melt(
-    errs,
-    id.vars = c("id", "state", "size", "n_hcp", "n_resident"),
-    variable.name = "term",
-    value.name = "error"
-  )
+  errs <- suppressWarnings({
+    melt(
+      errs,
+      id.vars = c("id", "state", "size", "n_hcp", "n_resident"),
+      variable.name = "term",
+      value.name = "error"
+    )
+  })
 
-  obs_val <- melt(
-    obs_val,
-    id.vars = "id",
-    variable.name = "term",
-    value.name = "observed"
-  )
+  obs_val <- suppressWarnings({
+    melt(
+      obs_val,
+      id.vars = "id",
+      variable.name = "term",
+      value.name = "observed"
+    )
+  })
 
-  fitted_val <- melt(
-    fitted_val,
-    id.vars = "id",
-    variable.name = "term",
-    value.name = "fitted"
-  )
+  fitted_val <- suppressWarnings({
+    melt(
+      fitted_val,
+      id.vars = "id",
+      variable.name = "term",
+      value.name = "fitted"
+    )
+  })
 
   errs <- merge(errs, obs_val, by = c("id", "term"))
   errs <- merge(errs, fitted_val, by = c("id", "term"))

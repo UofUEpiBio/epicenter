@@ -163,7 +163,8 @@
   },
   "[cpp]": {
     "editor.wordWrap": "off"
-  }
+  },
+  "livePreview.defaultPreviewPath": "/models/05-supplemental-materials.html"
 }
 
 

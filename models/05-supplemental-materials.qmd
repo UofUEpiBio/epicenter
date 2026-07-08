@@ -1,5 +1,5 @@
 ---
-format: html
+format: gfm
 title: "Supplemental Materials for \"Exponential-Family Random Graph Models in Resident-Healthcare Provider Networks: An Application using data from Long-term Healthcare Facilities in the United States\""
 author:
   - George G. Vega Yon
@@ -13,7 +13,7 @@ author:
   - Matthew H. Samore
 date: 2025-04-01
 date-modified: 2026-06-22
-embed-resources: true
+embed-resources: false
 ---
 
 
@@ -718,3 +718,34 @@ texreg::screenreg(
 )
 ```
 
+## Table with terms used in the model
+
+
+```{r}
+#| results: asis
+#| label: model-terms-table
+library(tabulergm)
+tabulergm_table(
+  net ~
+    edges +
+    b1factor("type") + gwb1dsp +
+    b2factor("dialysis") +
+    b2nodematch("ventilator") +
+    b1nodematch("type"),
+  format = "markdown"
+)
+```
+
+We also need to save the table's contents for inclusion in the manuscript
+
+
+```{r}
+tabulergm_table(
+  net ~
+    edges +
+    b1factor("type") + gwb1dsp +
+    b2factor("dialysis") +
+    b2nodematch("ventilator") +
+    b1nodematch("type")
+)
+```
