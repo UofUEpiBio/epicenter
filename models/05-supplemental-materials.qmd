@@ -1,6 +1,6 @@
 ---
 format: docx
-title: "Supplemental Materials for \"Exponential-Family Random Graph Models in Resident-Health Care Worker Networks: An Application using data from Long-term Healthcare Facilities in the United States\""
+title: "Supplemental Materials for \"Exponential-Family Random Graph Models in Resident-Health Care Provider Networks: An Application using data from Long-term Healthcare Facilities in the United States\""
 author:
   - George G. Vega Yon
   - Chong Zhang
@@ -15,6 +15,7 @@ date: 2025-04-01
 date-modified: 2026-07-08
 embed-resources: false
 execute:
+  echo: false
   message: false
   warning: false
 ---
@@ -22,13 +23,9 @@ execute:
 
 This document presents supplemental analyses for the final pooled bipartite ERGM model in the main manuscript. The emphasis is on model specification, goodness-of-fit (GOF), MCMC diagnostics, bootstrap-based uncertainty estimates, and post-estimation checks of residual variation across states.
 
-The code chunks below are annotated to clarify the purpose of each step and to make the reported diagnostics reproducible.
+The analyses below are annotated to clarify the purpose of each step and to make the reported diagnostics reproducible.
 
-Throughout the prose, "resident" denotes individuals living in the participating long-term care facility units, and "HCW" denotes health care workers. Some saved model objects and coefficient names retain the legacy code labels `n_patients` and `n_hcp`; in this supplement, those labels refer to residents and HCWs, respectively.
-
-## Setup
-
-The following code chunk loads the relevant model objects and nodal attribute data required for the subsequent analyses. It loads the fitted multi-ERGM object (`fits_boot`) as well as the helper functions and network data used throughout this document.
+Throughout the prose, "resident" denotes individuals living in the participating long-term care facility units, and "HCP" denotes health care providers. Some saved model objects and coefficient names retain the legacy code labels `n_patients` and `n_hcp`; in this supplement, those labels refer to residents and HCPs, respectively.
 
 ```{r}
 #| label: load-packages-and-data
@@ -38,7 +35,7 @@ fits_boot <- readRDS("models/04d-boot-ergms-results.rds")
 naive_fit <- fits_boot$naive_fit
 suppressPackageStartupMessages(source('models/helpers.R'))
 display_term_label <- function(x) {
-  gsub("n_hcp", "n_hcw", x, fixed = TRUE)
+  x
 }
 ```
 
@@ -55,12 +52,12 @@ stat_order <- stat_order[!stat_order %in% c("offset(b1degree0)", "offset(b2degre
 log_n_residents <- sapply(networks, \(net) {
   log(network.size(net) - sum(net %v% "is_actor"))
 })
-log_n_hcw <- sapply(networks, \(net) {
+log_n_hcp <- sapply(networks, \(net) {
   log(sum(net %v% "is_actor"))
 })
 
 mean_log_residents <- mean(log_n_residents)
-mean_log_hcw <- mean(log_n_hcw)
+mean_log_hcp <- mean(log_n_hcp)
 
 per_network_stats <- lapply(seq_along(networks), \(i) {
   net <- networks[[i]]
@@ -73,13 +70,13 @@ per_network_stats <- lapply(seq_along(networks), \(i) {
     "N(I(log(n_patients) - mean(log(n_patients))))~edges" =
       unname(edges * (log_n_residents[i] - mean_log_residents)),
     "N(I(log(n_hcp) - mean(log(n_hcp))))~edges" =
-      unname(edges * (log_n_hcw[i] - mean_log_hcw)),
+      unname(edges * (log_n_hcp[i] - mean_log_hcp)),
     summary(net ~ b1factor("type", levels = c("CNA", "Nurse", "PT/OT", "RT"))),
     "N(1)~gwb1dsp.fixed.0.84" = gwb1dsp,
     "N(I(log(n_patients) - mean(log(n_patients))))~gwb1dsp.fixed.0.84" =
       unname(gwb1dsp * (log_n_residents[i] - mean_log_residents)),
     "N(I(log(n_hcp) - mean(log(n_hcp))))~gwb1dsp.fixed.0.84" =
-      unname(gwb1dsp * (log_n_hcw[i] - mean_log_hcw)),
+      unname(gwb1dsp * (log_n_hcp[i] - mean_log_hcp)),
     summary(net ~ b2factor("dialysis", levels = "Yes")),
     summary(net ~ b2factor("wound_care", levels = "Yes")),
     summary(net ~ b2factor("bedridden", levels = "Yes")),
@@ -170,7 +167,7 @@ if (interactive())
   ggsave("models/05-supplemental-materials-cluster-sizes.png", width = 10, height = 6)
 ```
 
-Maryland contributes only six networks, and its network sizes are more irregular than those of the other states. The next plot compares network size with the observed number of ties.
+Maryland contributes only six networks, and its network sizes are more irregular than those of the other states. Network size and the observed number of ties are compared below.
 
 ```{r}
 ggplot(sizes, aes(x = size, y = nties)) +
@@ -190,14 +187,14 @@ if (interactive())
 
 ## Degree distribution by node type and network size
 
-The following plots summarize degree distributions by state, network size, and node type. These descriptive checks help determine whether heterogeneity in connectivity is mostly explained by network size and composition or whether additional model terms may be needed.
+Degree distributions by state, network size, and node type help determine whether heterogeneity in connectivity is mostly explained by network size and composition or whether additional model terms may be needed.
 
 ```{r}
 #| label: degree-distribution
 #| fig-height: 8
 #| fig-width: 6
 degs <- lapply(networks, \(n) {
-  hcw_type <- ifelse(
+  hcp_type <- ifelse(
     n %v% "Nurse" == 1, "Nurse",
     ifelse(
       n %v% "PTOTRT" == 1,
@@ -218,19 +215,19 @@ degs <- lapply(networks, \(n) {
     is_actor = n %v% "is_actor",
     size = network.size(n),
     state = n %v% "state",
-    type_hcw = hcw_type,
+    type_hcp = hcp_type,
     type = n %v% "type"
   )
 }) |> rbindlist()
 
 degs[type %in% c("Physician", "PA/NP"), type := "Other"]
 
-degs[is_actor == FALSE, type_hcw := "Resident"]
+degs[is_actor == FALSE, type_hcp := "Resident"]
 degs[, net_id := factor(net_id, levels = unique(net_id))]
 degs[, size := factor(size, levels = sort(unique(size)))]
-degs[, type_hcw := factor(type_hcw)]
+degs[, type_hcp := factor(type_hcp)]
 
-degs[, is_actor := ifelse(is_actor, "HCW", "Resident")]
+degs[, is_actor := ifelse(is_actor, "HCP", "Resident")]
 
 degs |>
   ggplot(aes(y = size, x=degree, fill = is_actor)) +
@@ -250,11 +247,11 @@ if (interactive())
   ggsave("models/05-supplemental-materials-degree-distribution.png", width = 6, height = 10)
 ```
 
-The table below summarizes HCW degree after scaling by the actual network size. This puts degree values from networks of different sizes on a more comparable scale.
+The table below summarizes HCP degree after scaling by the actual network size. This puts degree values from networks of different sizes on a more comparable scale.
 
 ```{r}
 degs[, size_num := as.numeric(as.character(size))]
-degs[is_actor == "HCW", .(
+degs[is_actor == "HCP", .(
   mean_degree = mean(degree/size_num),
   median_degree = median(degree/size_num),
   sd_degree = sd(degree/size_num),
@@ -265,7 +262,7 @@ degs[is_actor == "HCW", .(
   )
 ), by = .(state)][order(mean_degree)] |>
   knitr::kable(
-    caption = "Summary of degree distribution for HCWs across states (scaled by size)",
+    caption = "Summary of degree distribution for HCPs across states (scaled by size)",
     digits = 2
   )
 ```
@@ -292,7 +289,7 @@ if (interactive())
   ggsave("models/05-supplemental-materials-degree-distribution-by-type.png", width = 6, height = 6)
 ```
 
-The next plot examines resident concurrency, measured with `b2concurrent()`, across network sizes and states.
+Resident concurrency, measured with `b2concurrent()`, is also examined across network sizes and states.
 
 ```{r}
 dat_b2concurrent <- lapply(networks, \(n) {
@@ -327,13 +324,13 @@ if (interactive())
   ggsave("models/05-supplemental-materials-b2concurrent.png", width = 6, height = 6)
 ```
 
-The relationship with network size is approximately linear. This suggests that the model can capture much of this variation through size-adjusted terms, without requiring an additional `log(n_hcw)` adjustment for this statistic.
+The relationship with network size is approximately linear. This suggests that the model can capture much of this variation through size-adjusted terms, without requiring an additional `log(n_hcp)` adjustment for this statistic.
 
 ## Final model
 
-The final model includes log-size adjustments for the edges term and for the geometrically weighted dyadwise shared-partner term (`gwb1dsp`). Specifically, the model allows both terms to vary with centered log counts of residents and HCWs. The table compares the naive model-based standard errors with bootstrap-corrected standard errors from the retained bootstrap fits (`r nrow(fits_boot$bootstrap_results)` of 200 requested resamples).
+The final model includes log-size adjustments for the edges term and for the geometrically weighted dyadwise shared-partner term (`gwb1dsp`). Specifically, the model allows both terms to vary with centered log counts of residents and HCPs. The table compares the naive model-based standard errors with bootstrap-corrected standard errors from the 200 bootstrap fits.
 
-Several terms that are statistically significant under the naive model (for example, `N(1)~edges`, `N(log(n_hcw))~edges`, `b1factor.type.CNA`, `b1nodematch.type.Other`, and `b1nodematch.type.RT`) lose significance when the larger bootstrap standard errors are used. This pattern underscores the importance of accounting for non-independence across networks when interpreting uncertainty.
+Several terms that are statistically significant under the naive model (for example, `N(1)~edges`, `N(log(n_hcp))~edges`, `b1factor.type.CNA`, `b1nodematch.type.Other`, and `b1nodematch.type.RT`) lose significance when the larger bootstrap standard errors are used. This pattern underscores the importance of accounting for non-independence across networks when interpreting uncertainty.
 
 ```{r}
 #| label: final-model
@@ -349,13 +346,13 @@ texreg::screenreg(
   override.se = list(naive_texreg@se, fits_boot$bootstrap_sds),
   override.pvalues = list(naive_texreg@pvalues, fits_boot$pvalues),
   custom.coef.names = coef_labels,
-  single.row = TRUE
+  single.row = FALSE
 )
 ```
 
 ## Goodness-of-fit diagnostics
 
-This section loads the precomputed goodness-of-fit statistics for the final model. These statistics compare observed network features with values generated under the fitted model, providing a direct check of whether the model reproduces the main structural features of the observed networks.
+These goodness-of-fit statistics compare observed network features with values generated under the fitted model, providing a direct check of whether the model reproduces the main structural features of the observed networks.
 
 ```{r}
 #| label: load-gof
@@ -368,7 +365,7 @@ if (file.exists(fn)) {
 }
 ```
 
-The next figure compares observed and fitted values for each statistic. Points close to the red 45-degree line indicate statistics that are well reproduced by the model.
+For each statistic, points close to the red 45-degree line below indicate close agreement between observed and fitted values.
 
 ```{r}
 #| label: gof-obs-vs-fitted
@@ -411,7 +408,7 @@ if (interactive())
 
 ## Observed network features
 
-This section provides additional descriptive visualizations of the observed networks. We summarize network size, the number of health care workers (HCWs), and mean HCW degree to contextualize the heterogeneity that the final model is intended to capture.
+We summarize network size, the number of health care providers (HCPs), and mean HCP degree to contextualize the heterogeneity that the final model is intended to capture.
 
 ```{r}
 #| label: network-feats
@@ -423,7 +420,7 @@ netsapply <- function(f) {
 }
 network_stats <- data.frame(
   size = sapply(networks, network.size),
-  n_hcw = netsapply(\(x) {sum(x %v% "is_actor")}),
+  n_hcp = netsapply(\(x) {sum(x %v% "is_actor")}),
   n_mdro = netsapply(\(x) {sum((x %v% "mdro") == "Yes")}),
   n_dialysis = netsapply(\(x) {sum((x %v% "dialysis") == "Yes")}),
   n_wound_care = netsapply(\(x) {sum((x %v% "wound_care") == "Yes")}),
@@ -432,7 +429,7 @@ network_stats <- data.frame(
   # Now, tabulating the network composition
   n_nurses = netsapply(\(x) {sum((x %v% "Nurse") == 1)}),
   n_PTOTRT = netsapply(\(x) {sum((x %v% "PTOTRT") == 1)}),
-  hcw_mean_degree = netsapply(\(x) {mean(sna::degree(x)[x %v% "is_actor"])})
+  hcp_mean_degree = netsapply(\(x) {mean(sna::degree(x)[x %v% "is_actor"])})
 )
 
 # Size distribution
@@ -445,29 +442,29 @@ fig_size <- ggplot(network_stats, aes(x = size)) +
   ) +
   theme_minimal()
 
-# Size vs number of HCWs
-fig_size_hcw <- ggplot(network_stats, aes(x = size, y = n_hcw)) +
+# Size vs number of HCPs
+fig_size_hcp <- ggplot(network_stats, aes(x = size, y = n_hcp)) +
   geom_point() +
   labs(
     x = "Network Size",
-    y = "Number of HCWs",
-    title = "Number of HCWs"
+    y = "Number of HCPs",
+    title = "Number of HCPs"
   ) +
   theme_minimal()
 
-# Size vs HCW mean degree
-fig_size_hcw_degree <- ggplot(network_stats, aes(x = size, y = hcw_mean_degree)) +
+# Size vs HCP mean degree
+fig_size_hcp_degree <- ggplot(network_stats, aes(x = size, y = hcp_mean_degree)) +
   geom_point() +
   labs(
     x = "Network Size",
-    y = "Mean HCW Degree",
-    title = "Mean HCW Degree"
+    y = "Mean HCP Degree",
+    title = "Mean HCP Degree"
   ) +
   theme_minimal()
 
 # Combine both figures into a single ggplot object
 library(patchwork)
-fig_size + fig_size_hcw + fig_size_hcw_degree
+fig_size + fig_size_hcp + fig_size_hcp_degree
 ggsave("models/05-supplemental-materials-network-feats.png", width = 9*.75, height = 3*.75)
 
 ```
@@ -599,7 +596,7 @@ The omnibus Wald test gives a chi-square statistic of 10.84 (df = 6, p = 0.094).
 
 ## Alternative GWDSP specifications
 
-The final table compares three related model specifications. The estimates are read from the saved model fits in `models/03-pooled-ergms-rds/`, and the reported standard errors and p-values use the corresponding bootstrap summaries saved by the `04*.rds` bootstrap files.
+The following table compares three related model specifications, with standard errors and p-values based on the corresponding bootstrap resampling procedures.
 
 ```{r}
 #| label: alternative-gwdsp-specifications
@@ -650,7 +647,7 @@ texreg::screenreg(
   override.se = lapply(model_comparison, \(x) x$boot$bootstrap_sds),
   override.pvalues = lapply(model_comparison, \(x) x$boot$pvalues),
   custom.coef.names = coef_labels,
-  single.row = TRUE
+  single.row = FALSE
 )
 ```
 
