@@ -184,6 +184,18 @@ texreg::htmlreg(
   single.row = TRUE
 )
 
+texreg::screenreg(
+  list(
+    'Naive model'=naive_fit,
+    'Block bootstrap model'=naive_fit
+    ),
+  override.se = list(NULL, boot_res_sd),
+  override.pvalues = list(NULL, pvalues),
+  single.row = TRUE,
+  file = "models/04b-boot-ergms-results.txt"
+)
+
+
 saveRDS(
   list(
     bootstrap_results = boot_res,
