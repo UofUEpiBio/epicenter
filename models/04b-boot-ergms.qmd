@@ -1,5 +1,5 @@
 ---
-title: "Bootstrapping ERGMs"
+title: "Bootstrapping ERGMs (blocked at the facility level)"
 format: html
   # pdf:
   #   extra_dependencies:
@@ -16,16 +16,45 @@ date: 2023-08-26
 author:
   - Chong Zhang
   - George G. Vega Yon
-date-modified: 2025-01-03
+date-modified: 2026-08-19
 embed-resources: true
 ---
 
 8/28/2023
 
+This document bootstraps the baseline model using stochastic approximation (SA),
+and compares it against the MC-MLE run in `04-boot-ergms.qmd`. Replicates are
+drawn with a *block* bootstrap: instead of resampling networks independently, we
+resample *facilities*, so whenever a facility is drawn all of the networks
+belonging to it (its units, across dates) enter the replicate together. This
+accounts for the within-facility correlation that a naive network-level
+bootstrap ignores. The same blocking is used in `04c-boot-ergms.qmd` and
+`04d-boot-ergms.qmd`.
+
 ```{r}
 source("models/helpers.R")
 load('data/network93_f2.RData')
 fits <- readRDS("models/03-pooled-ergms-final-results.rds")
+```
+
+## Defining the blocking variable
+
+Each network corresponds to a `state`/`Fac_Name`/`Fac_Unit`/date combination, so
+a single facility can contribute several networks. We block on `state` +
+`Fac_Name` since facility names are not guaranteed to be unique across states.
+The blocking variable is built by `facility_cluster_id()` in
+`models/helpers.R`, so every `04*` document blocks identically.
+
+```{r}
+cluster_id <- facility_cluster_id(networks)
+
+# How many networks per facility?
+table(table(cluster_id))
+
+c(
+  n_networks = length(networks),
+  n_clusters = length(unique(cluster_id))
+)
 ```
 
 ## Evaluating in the final model
@@ -72,6 +101,7 @@ ans <- boot_ergm(
   ),
   offset.coef = c(-Inf, -Inf),
   nboot = 200,
+  cluster_id = cluster_id,
   cl = cl,
   cache = "models/04b-boot-ergms-cache"
 )
@@ -89,8 +119,12 @@ boot_res <- list.files(
   pattern = "\\.rds$",
   full.names = TRUE
   ) |> 
-  lapply(readRDS) |>
-  do.call(what = rbind)
+  lapply(readRDS)
+
+# Replicates that failed are stored as error objects
+boot_res <- boot_res[!sapply(boot_res, inherits, what = "error")]
+
+boot_res <- do.call(what = rbind, boot_res)
 
 # Generating a regression table
 boot_res_mean <- apply(boot_res, 2, mean, na.rm = TRUE)
@@ -100,14 +134,22 @@ boot_res_sd <- apply(boot_res, 2, sd, na.rm = TRUE)
 naive_fit <- fits$gwdsp_with_log_patients
 pvalues <- 2 * (1 - pnorm(abs(coef(naive_fit)) / boot_res_sd))
 
-# Reading the results from the MC-MLE bootstrap
+# Reading the results from the MC-MLE bootstrap. NOTE: `04-boot-ergms.qmd` has
+# not been re-run under the block bootstrap, so its replicates still resample
+# individual networks. The columns below therefore differ in *both* the
+# estimation method and the resampling scheme.
 boot_mcmle_res <- list.files(
   "models/04-boot-ergms-cache",
   pattern = "\\.rds$",
   full.names = TRUE
   ) |> 
-  lapply(readRDS) |>
-  do.call(what = rbind)
+  lapply(readRDS)
+
+boot_mcmle_res <- boot_mcmle_res[
+  !sapply(boot_mcmle_res, inherits, what = "error")
+]
+
+boot_mcmle_res <- do.call(what = rbind, boot_mcmle_res)
 
 # Generating a regression table
 boot_mcmle_res_mean <- apply(boot_mcmle_res, 2, mean, na.rm = TRUE)
@@ -119,8 +161,8 @@ pvalues_mcmle <- 2 * (1 - pnorm(abs(coef(naive_fit)) / boot_mcmle_res_sd))
 texreg::screenreg(
   list(
     'Naive model'=naive_fit,
-    'SA Bootstrap model'=naive_fit,
-    'MC-MLE Bootstrap model'=naive_fit
+    'SA (block boot)'=naive_fit,
+    'MC-MLE (naive boot)'=naive_fit
     ),
   override.se = list(NULL, boot_res_sd, boot_mcmle_res_sd),
   override.pvalues = list(NULL, pvalues, pvalues_mcmle),
@@ -135,7 +177,7 @@ texreg::htmlreg(
   file = "models/04b-boot-ergms-results.html",
   list(
     'Naive model'=naive_fit,
-    'Bootstrap model'=naive_fit
+    'Block bootstrap model'=naive_fit
     ),
   override.se = list(NULL, boot_res_sd),
   override.pvalues = list(NULL, pvalues),
@@ -148,7 +190,8 @@ saveRDS(
     bootstrap_means = boot_res_mean,
     bootstrap_sds = boot_res_sd,
     pvalues = pvalues,
-    naive_fit = naive_fit
+    naive_fit = naive_fit,
+    cluster_id = cluster_id
   ),
   file = "models/04b-boot-ergms-results.rds"
 )

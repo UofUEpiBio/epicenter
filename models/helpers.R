@@ -328,6 +328,26 @@ with_restore <- function(name, data, ..., path = "models/03-pooled-ergms-rds") {
   invisible(res)
 }
 
+#' Blocking variable for the facility-level block bootstrap
+#' Each network is a facility-unit/date observation, so a single facility
+#' contributes several networks. Blocking on `state` + `Fac_Name` keeps every
+#' network of a sampled facility together in the replicate (facility names are
+#' not guaranteed to be unique across states).
+#' @param nets A list of [network] objects.
+#' @return Character vector of length `length(nets)` with the facility each
+#' network belongs to, suitable for `boot_ergm(cluster_id = )`.
+facility_cluster_id <- function(nets) {
+
+  sapply(nets, \(net) {
+    paste(
+      unique(net %v% "Fac_Name"),
+      unique(net %v% "Fac_Unit"),
+      sep = "::"
+    )
+  }) |> unname()
+
+}
+
 #' Restore a cached result
 #' @param i The index of the cached result to restore.
 #' @param cache The directory where the cached results are stored.

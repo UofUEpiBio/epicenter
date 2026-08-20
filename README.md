@@ -27,18 +27,29 @@ produced those saved objects, and are kept for provenance.
 | `models/03-pooled-ergms.qmd` | Main model selection. Fits the pooled multi-network ERGMs term by term with `ergm.multi::N()`. | `models/03-pooled-ergms-final-results.rds`, `models/03-pooled-ergms-rds/` |
 | `models/20260520-ergm-fit-diagnostics.qmd` | Investigation of convergence failures and between- vs within-state heterogeneity, motivating the final specification. | none (report) |
 | `models/04-boot-ergms.qmd` | Bootstrap of the baseline model using MC-MLE. Its cache is read by `04b` for the SA-vs-MC-MLE comparison. | `models/04-boot-ergms-cache/` |
-| `models/04b-boot-ergms.qmd` | Bootstrap of the baseline model using stochastic approximation, compared against the MC-MLE run above. | `models/04b-boot-ergms-results.rds` |
-| `models/04c-boot-ergms.qmd` | Bootstrap of the model with state-level intercepts (`facility_state`). | `models/04c-boot-ergms-results.rds` |
-| `models/04d-boot-ergms.qmd` | Bootstrap of the final GWDSP × log(size) model. Supplies the standard errors reported in the paper. | `models/04d-boot-ergms-results.rds` |
-| `models/04e-boot-ergms.qmd` | Blocked bootstrap of the final model, resampling facilities instead of networks so that within-facility correlation is respected. | `models/04e-boot-ergms-results.rds` |
+| `models/04b-boot-ergms.qmd` | Block bootstrap of the baseline model using stochastic approximation, compared against the MC-MLE run above. | `models/04b-boot-ergms-results.rds` |
+| `models/04c-boot-ergms.qmd` | Block bootstrap of the model with state-level intercepts (`facility_state`). | `models/04c-boot-ergms-results.rds` |
+| `models/04d-boot-ergms.qmd` | Block bootstrap of the final GWDSP × log(size) model. Supplies the standard errors reported in the paper. | `models/04d-boot-ergms-results.rds` |
 | `models/05-supplemental-materials.qmd` | **Final supplement.** Observed statistics, GOF, MCMC diagnostics, bootstrap standard errors, and the alternative-specification comparison. | `models/05-supplemental-materials.docx` |
-| `models/helpers.R` | Shared code: `set_ergm()` network preparation, `boot_ergm()` bootstrap driver, GOF plotting, `texreg` wrappers, and result caching. | — |
+| `models/helpers.R` | Shared code: `set_ergm()` network preparation, `boot_ergm()` bootstrap driver, `facility_cluster_id()` blocking variable, GOF plotting, `texreg` wrappers, and result caching. | — |
 
 The `04*` documents share one bootstrap driver, `boot_ergm()` in
 `models/helpers.R`. Each replicate is cached as an individual `.rds` under
 `models/04*-boot-ergms-cache/`, so an interrupted run resumes where it stopped.
-Passing `cluster_id` switches that driver from resampling individual networks to
-resampling whole clusters, which is the only difference between `04d` and `04e`.
+
+`04b`, `04c`, and `04d` run a **block bootstrap**: they pass `cluster_id` to
+`boot_ergm()`, which switches the driver from resampling individual networks to
+resampling whole facilities, so every network belonging to a drawn facility
+enters the replicate together and within-facility correlation is respected. The
+blocking variable is built once by `facility_cluster_id()` in
+`models/helpers.R`, which blocks on `state` + `Fac_Name` and maps the 93
+networks onto 24 facilities. `04` is the older MC-MLE run and still resamples
+individual networks; it is kept only as the comparison column in `04b`.
+
+Because the resampling scheme is part of what each cached replicate encodes, a
+cache written by an earlier naive run is not reusable: clear
+`models/04*-boot-ergms-cache/` before re-running these documents, or the stale
+replicates will be restored instead of recomputed.
 
 ## Inputs required by the supplement
 
@@ -46,8 +57,8 @@ These files must be present to render `models/05-supplemental-materials.qmd`:
 
 - `data/network93_f2.RData` — the 93 prepared networks.
 - `models/04b-boot-ergms-results.rds`, `models/04c-boot-ergms-results.rds`, and
-  `models/04d-boot-ergms-results.rds` — bootstrap summaries; `04d` also supplies
-  the final fitted model.
+  `models/04d-boot-ergms-results.rds` — block-bootstrap summaries; `04d` also
+  supplies the final fitted model.
 - `models/03-pooled-ergms-rds/res4_gwdsp_var_bnodematch.rds`,
   `res6_full_and_facility_mcmle.rds`, and `res6_full_and_logn_gwdsp.84mcmle.rds`
   — the three specifications in the comparison table.

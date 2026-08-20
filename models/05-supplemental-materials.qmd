@@ -21,7 +21,7 @@ execute:
 ---
 
 
-This document presents supplemental analyses for the final pooled bipartite ERGM model in the main manuscript. The emphasis is on model specification, goodness-of-fit (GOF), MCMC diagnostics, bootstrap-based uncertainty estimates, and post-estimation checks of residual variation across states.
+This document presents supplemental analyses for the final pooled bipartite ERGM model in the main manuscript. The emphasis is on model specification, goodness-of-fit (GOF), MCMC diagnostics, block-bootstrap uncertainty estimates, and post-estimation checks of residual variation across states.
 
 The analyses below are annotated to clarify the purpose of each step and to make the reported diagnostics reproducible.
 
@@ -34,6 +34,10 @@ load('data/network93_f2.RData')
 fits_boot <- readRDS("models/04d-boot-ergms-results.rds")
 naive_fit <- fits_boot$naive_fit
 suppressPackageStartupMessages(source('models/helpers.R'))
+
+# Facility blocks used by the block bootstrap in the 04* documents
+cluster_id <- facility_cluster_id(networks)
+
 display_term_label <- function(x) {
   x
 }
@@ -330,7 +334,9 @@ The relationship with network size is approximately linear. This suggests that t
 
 The final model includes log-size adjustments for the edges term and for the geometrically weighted dyadwise shared-partner term (`gwb1dsp`). Specifically, the model allows both terms to vary with centered log counts of residents and HCPs. The table compares the naive model-based standard errors with bootstrap-corrected standard errors from the 200 bootstrap fits.
 
-Several terms that are statistically significant under the naive model (for example, `N(1)~edges`, `N(log(n_hcp))~edges`, `b1factor.type.CNA`, `b1nodematch.type.Other`, and `b1nodematch.type.RT`) lose significance when the larger bootstrap standard errors are used. This pattern underscores the importance of accounting for non-independence across networks when interpreting uncertainty.
+The bootstrap standard errors come from a *block* bootstrap that resamples facilities rather than networks. Each network is a facility-unit observed on a given date, so the same facility contributes several networks; the `r length(networks)` networks come from `r length(unique(cluster_id))` facilities. In each replicate we draw facilities with replacement and include every network belonging to a drawn facility, so networks from the same facility are kept together and the within-facility correlation is carried into the resampling distribution. Because facilities differ in how many networks they contribute, the number of networks per replicate is not constant.
+
+Several terms that are statistically significant under the naive model (for example, `N(1)~edges`, `N(log(n_hcp))~edges`, `b1factor.type.CNA`, `b1nodematch.type.Other`, and `b1nodematch.type.RT`) lose significance when the larger bootstrap standard errors are used. This pattern underscores the importance of accounting for within-facility correlation, and more generally for non-independence across networks, when interpreting uncertainty.
 
 ```{r}
 #| label: final-model
@@ -341,7 +347,7 @@ texreg::screenreg(
   # file = "models/04-boot-ergms-results.html",
   list(
     'Naive model'=naive_fit,
-    'Bootstrap model'=naive_fit
+    'Block bootstrap model'=naive_fit
     ),
   override.se = list(naive_texreg@se, fits_boot$bootstrap_sds),
   override.pvalues = list(naive_texreg@pvalues, fits_boot$pvalues),
@@ -596,7 +602,7 @@ The omnibus Wald test gives a chi-square statistic of 10.84 (df = 6, p = 0.094).
 
 ## Alternative GWDSP specifications
 
-The following table compares three related model specifications, with standard errors and p-values based on the corresponding bootstrap resampling procedures.
+The following table compares three related model specifications. All three sets of standard errors and p-values come from the same facility-blocked bootstrap described above, so the columns differ only in the model specification.
 
 ```{r}
 #| label: alternative-gwdsp-specifications
