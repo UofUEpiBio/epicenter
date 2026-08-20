@@ -1,208 +1,93 @@
 # Epicenter
 
-This repository contains the analysis workflow for the supplemental materials to
-the paper on bipartite contact networks between health care workers (HCWs) and
-residents in long-term care facilities in the United States.
+Analysis workflow for the paper on bipartite contact networks between health
+care providers (HCPs) and residents in long-term care facilities in the United
+States.
 
-The current publication target is:
+The publication target is the supplemental materials document:
 
 ```bash
 quarto render models/05-supplemental-materials.qmd
 ```
 
-The supplement is intentionally built from prepared network objects and saved
-model fits. Recreating every upstream ERGM and bootstrap object is possible, but
-expensive; for routine manuscript work, the saved `.RData` and `.rds` inputs are
-the practical starting point.
+`models/05-supplemental-materials.qmd` is the only document needed to reproduce
+the published supplement. It reads prepared network objects and saved model
+fits rather than refitting anything: the upstream ERGM and bootstrap steps take
+days of cluster time. The other Quarto documents are the intermediate steps that
+produced those saved objects, and are kept for provenance.
 
-## Publication Inputs
+## Analysis documents
 
-`models/05-supplemental-materials.qmd` directly uses these files:
+| File | Purpose | Key output |
+| --- | --- | --- |
+| `data/model_data.Rmd` | Builds the 93 bipartite facility-unit networks from the raw interaction records. The raw CSV is not distributed with this repository. | `data/network93_f2.RData` |
+| `models/01-descriptive.qmd` | Descriptive analysis of resident care-need attributes, degree, and network size. | figures only |
+| `models/02-individual_ergms.qmd` | Exploratory single-network ERGMs, one fit per network, used to check which terms are estimable. | `models/02-individual_ergms_fits/` |
+| `models/ergms_filtering_nets.qmd` | Early exploration of which networks to keep; documents dropping the 7 networks with a single HCP. | none (report) |
+| `models/03-pooled-ergms.qmd` | Main model selection. Fits the pooled multi-network ERGMs term by term with `ergm.multi::N()`. | `models/03-pooled-ergms-final-results.rds`, `models/03-pooled-ergms-rds/` |
+| `models/20260520-ergm-fit-diagnostics.qmd` | Investigation of convergence failures and between- vs within-state heterogeneity, motivating the final specification. | none (report) |
+| `models/04-boot-ergms.qmd` | Bootstrap of the baseline model using MC-MLE. Its cache is read by `04b` for the SA-vs-MC-MLE comparison. | `models/04-boot-ergms-cache/` |
+| `models/04b-boot-ergms.qmd` | Bootstrap of the baseline model using stochastic approximation, compared against the MC-MLE run above. | `models/04b-boot-ergms-results.rds` |
+| `models/04c-boot-ergms.qmd` | Bootstrap of the model with state-level intercepts (`facility_state`). | `models/04c-boot-ergms-results.rds` |
+| `models/04d-boot-ergms.qmd` | Bootstrap of the final GWDSP × log(size) model. Supplies the standard errors reported in the paper. | `models/04d-boot-ergms-results.rds` |
+| `models/04e-boot-ergms.qmd` | Blocked bootstrap of the final model, resampling facilities instead of networks so that within-facility correlation is respected. | `models/04e-boot-ergms-results.rds` |
+| `models/05-supplemental-materials.qmd` | **Final supplement.** Observed statistics, GOF, MCMC diagnostics, bootstrap standard errors, and the alternative-specification comparison. | `models/05-supplemental-materials.docx` |
+| `models/helpers.R` | Shared code: `set_ergm()` network preparation, `boot_ergm()` bootstrap driver, GOF plotting, `texreg` wrappers, and result caching. | — |
 
-- `models/05-supplemental-materials.qmd`: final supplemental-materials source.
-- `models/helpers.R`: shared ERGM setup, plotting, tabulation, and cache helpers.
-- `data/network93_f2.RData`: prepared list of 93 bipartite facility networks.
-- `models/04d-boot-ergms-results.rds`: final bootstrap result object; provides the final fitted model and bootstrap uncertainty estimates.
-- `models/05-supplemental-materials-gof.rds`: cached GOF object. If absent, the supplement recomputes it with `gofN(naive_fit)` and saves it.
-- `models/03-pooled-ergms-rds/res4_gwdsp_var_bnodematch.rds`: baseline comparison model.
-- `models/03-pooled-ergms-rds/res6_full_and_facility_mcmle.rds`: state-intercept comparison model.
-- `models/03-pooled-ergms-rds/res6_full_and_logn_gwdsp.84mcmle.rds`: final log-size GWDSP comparison model.
-- `models/04b-boot-ergms-results.rds`, `models/04c-boot-ergms-results.rds`, and `models/04d-boot-ergms-results.rds`: bootstrap summaries used in the alternative-specification table.
+The `04*` documents share one bootstrap driver, `boot_ergm()` in
+`models/helpers.R`. Each replicate is cached as an individual `.rds` under
+`models/04*-boot-ergms-cache/`, so an interrupted run resumes where it stopped.
+Passing `cluster_id` switches that driver from resampling individual networks to
+resampling whole clusters, which is the only difference between `04d` and `04e`.
 
-The render creates manuscript outputs and figures such as
-`models/05-supplemental-materials.docx`,
-`models/05-supplemental-materials.html`,
-`models/05-supplemental-materials.md`, and
-`models/05-supplemental-materials_files/`. These are generated artifacts, not
-source files.
+## Inputs required by the supplement
 
-## Requirements
+These files must be present to render `models/05-supplemental-materials.qmd`:
 
-The preferred environment is the devcontainer defined by:
+- `data/network93_f2.RData` — the 93 prepared networks.
+- `models/04b-boot-ergms-results.rds`, `models/04c-boot-ergms-results.rds`, and
+  `models/04d-boot-ergms-results.rds` — bootstrap summaries; `04d` also supplies
+  the final fitted model.
+- `models/03-pooled-ergms-rds/res4_gwdsp_var_bnodematch.rds`,
+  `res6_full_and_facility_mcmle.rds`, and `res6_full_and_logn_gwdsp.84mcmle.rds`
+  — the three specifications in the comparison table.
+- `models/05-supplemental-materials-gof.rds` — cached GOF object; recomputed with
+  `gofN()` and saved if absent.
 
-- `.devcontainer/Containerfile`
-- `.devcontainer/devcontainer.json`
+Model objects and prepared data are `.gitignore`d, so they travel outside git.
 
-The container installs R 4.5, Quarto 1.9.35, `libglpk-dev`, and the main R
-packages used by the analysis:
+## Environment
 
-- `ergm.multi`, `ergm`, `ergmito`, `network`, and `sna`
-- `data.table`
-- `ggplot2`, `ggrepel`, `ggridges`, `ggExtra`, `gridExtra`, and `patchwork`
-- `texreg`
-- `netplot`
-- `quarto` and `knitr`
-- `tabulergm`, installed from GitHub
-
-Build and enter the container from the repository root with:
+The analysis runs in the container defined by `.devcontainer/Containerfile`
+(R 4.5, Quarto 1.9.35, `ergm.multi`, `data.table`, `texreg`, `ggplot2` and
+friends, and `tabulergm` from GitHub).
 
 ```bash
 make container_build
 make container_run
+make render            # quarto render models/05-supplemental-materials.qmd
 ```
 
-Then render the supplement:
+On CHPC, `render.slurm` runs the same target through Singularity. The `04*`
+bootstrap documents use `parallel::makeForkCluster()`; lower the worker count
+before running them anywhere other than a compute node.
 
-```bash
-quarto render models/05-supplemental-materials.qmd
+## Repository layout
+
+```
+data/       prepared networks and the data-preparation source
+models/     analysis documents, helpers.R, and saved model objects
+.devcontainer/  container definition
+Makefile    render, container, and Singularity targets
+render.slurm    CHPC entry point
 ```
 
-or equivalently:
+Superseded analyses and side projects (`abm/`, `chong/`, `fig/`,
+`LTCF_final_report/`, `summary-stats.R`) are no longer tracked. They may still
+exist in a local working copy, and remain in the git history.
 
-```bash
-make render
-```
+## Note on terminology
 
-## Execution Order
-
-For normal manuscript edits, run only the final document after confirming the
-saved inputs listed above are present:
-
-```bash
-quarto render models/05-supplemental-materials.qmd
-```
-
-To regenerate upstream objects from the prepared networks, use this order:
-
-1. `quarto render models/03-pooled-ergms.qmd`
-2. `quarto render models/04-boot-ergms.qmd`
-3. `quarto render models/04b-boot-ergms.qmd`
-4. `quarto render models/04c-boot-ergms.qmd`
-5. `quarto render models/04d-boot-ergms.qmd`
-6. `quarto render models/05-supplemental-materials.qmd`
-
-Optional context reports can be rendered independently:
-
-- `models/01-descriptive.qmd`
-- `models/02-individual_ergms.qmd`
-- `models/20260520-ergm-fit-diagnostics.qmd`
-- `models/ergms_filtering_nets.qmd`
-
-These optional reports help with provenance, diagnostics, and model selection,
-but they are not direct dependencies of the final supplemental-materials file.
-
-## Project Layout
-
-- `models/`: current Quarto analysis workflow and saved model objects.
-- `models/helpers.R`: shared code used by the active workflow.
-- `data/`: prepared analysis inputs. The raw interaction CSV referenced by
-  `data/model_data.Rmd` is not present, so the repository is not currently a
-  raw-data-to-paper reconstruction.
-- `.devcontainer/`: active reproducible development environment.
-- `Makefile`: helper targets for rendering, container builds, and Singularity.
-- `render.slurm`: CHPC/SLURM entry point that uses Singularity and `make render`.
-- `abm/`: separate agent-based outbreak simulation subproject. It is useful for
-  related work, but it does not feed `models/05-supplemental-materials.qmd`.
-- `fig/`: ERGM term illustrations used for documentation or presentation.
-- `review/` and `20250707-socnet-submission/`: manuscript review/submission
-  records, useful for provenance but not part of the supplement build.
-- `chong/` and `LTCF_final_report/`: earlier analysis and report archive from
-  prior model-development cycles.
-
-## Generated And Cached Files
-
-The repository contains many rendered reports and saved computations. They are
-useful for reproducibility and audit trails, but they should be treated as
-generated artifacts unless the paper archive intentionally includes them.
-
-Common generated outputs:
-
-- `models/*.html`, `models/*.pdf`, `models/*.docx`, and `models/*.md`
-- `models/*.rmarkdown`
-- `README.html` and `README_files/`
-- `models/*_files/`
-- `models/*_cache/`
-- `models/02-individual_ergms_fits/`
-- `models/03-pooled-ergms-rds/`
-- `models/04*-boot-ergms-cache/`
-- `models/05-supplemental-materials-*.png`
-- `models/05-supplemental-materials-*.pdf`
-
-Common saved model/data objects:
-
-- `*.RData`, `*.rda`, `*.rds`, and `*.RDS`
-- `*.csv`, `*.tsv`, `*.dat`, and `*.data`
-- `*.zip` and `*.sif`
-
-These patterns are ignored by `.gitignore` for new files. Existing local copies
-may still be needed to render the supplement, especially the prepared network
-and model objects listed in "Publication Inputs".
-
-## Cleanup And Archive Notes
-
-Files and directories that do not contribute to
-`models/05-supplemental-materials.qmd` and should be archived or removed from a
-publication source release:
-
-- `chong/`: old 2023 analysis scripts and notebooks.
-- `LTCF_final_report/`: old fitted models, GOF objects, scripts, and PDFs.
-- `20250707-socnet-submission/` and `review/`: submission/review records.
-- Top-level rendered or packaged artifacts: `Epicenter.pdf`, `Rplots.pdf`,
-  `errs*.pdf`, `gof*.pdf`, `mcmc_diagnostics.pdf`, `4d.zip`,
-  `final-report.zip`, and `response_letter_edited.docx`.
-- `README.html` and `README_files/`: generated from the README.
-- `models/05-supplemental-materials-sims.rds`,
-  `models/05-supplemental-materials-example1.svg`, and
-  `models/example1.svg`: remnants of an older simulated-network visualization
-  section that is no longer present in the current supplement.
-- `data/big_net_mat_f2.RData`, `data/dd_nodal_attr.RData`,
-  `data/gofN_model12_93.rds`, `data/model_may2026*.rds`, and
-  `data/res12_*`: useful for older diagnostics and model-selection history, but
-  not read by the final supplement.
-- `models/04-boot-ergms-results.rds` and `models/04-boot-ergms-cache/`: earlier
-  bootstrap outputs. They are not direct supplement inputs, but the
-  `04b` report reads the `04-boot` cache if you regenerate reports from scratch.
-- `models/*.rmarkdown`: older/intermediate R Markdown copies of Quarto sources.
-- `models/.gitignore`: redundant local ignore file; the root `.gitignore`
-  covers Quarto outputs and generated artifacts.
-- `ContainerFile`: older top-level container recipe. The active recipe is
-  `.devcontainer/Containerfile`.
-- `epicenter.sif` and `.singularity/`: local Singularity image/cache artifacts.
-- `summary-stats.R` and `abm/descriptive-stats.R`: small legacy utility scripts
-  that load archived `LTCF_final_report` model objects.
-- `ergm-terms.svg` and `fig/`: documentation/presentation assets; keep only if
-  the manuscript or a related explainer needs them.
-- `partial.csv` at the repository root: appears to be an intermediate data file;
-  it is not read by the final supplement.
-- `data/facilities.csv`: facility metadata, but not read directly by the final
-  supplement.
-- `data/data`, `models/data`, and `models/models`: symlinks back into the
-  repository. They may be convenient locally, but they are easy to confuse with
-  real source directories in a publication archive.
-- `.vscode/settings.json`: duplicate local editor settings; the devcontainer
-  also mounts `.devcontainer/.vscode/settings.json`.
-
-The `abm/` directory is best handled as a separate subproject. In particular,
-`abm/networks.R` references `../models/2022-04-25-bipartite-ergms.rds`, which is
-not present in this repository, so that workflow is not currently reproducible
-from the publication inputs alone.
-
-## Notes
-
-- Several Quarto documents use parallel workers and can be heavy on a laptop or
-  shared machine. Reduce the worker count before rerunning long model fits.
-- The saved model objects use legacy names such as `n_hcp` and `n_patients`.
-  The manuscript language now treats those as HCWs and residents, respectively.
-- The prepared data/model binaries are ignored for new commits by default. If a
-  formal reproducibility archive needs to include them, add them explicitly with
-  a documented exception rather than loosening the general ignore rules.
+Saved model objects and coefficient names use the legacy labels `n_patients` and
+`n_hcp`. Throughout the manuscript these mean residents and health care
+providers, respectively.

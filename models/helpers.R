@@ -383,11 +383,24 @@ run_with_cache <- function(i, cache, ...) {
 }
 
 # Bootstrapping function of the ERGM model
+#' @param networks A list of [network] objects.
+#' @param ergm_formula The formula passed to [ergm::ergm()].
+#' @param nboot Integer. Number of bootstrap replicates.
+#' @param cluster_id Optional vector of length `length(networks)` identifying
+#' the cluster (e.g., facility) each network belongs to. When `NULL` (default),
+#' the bootstrap resamples individual networks. When provided, the bootstrap is
+#' *blocked*: clusters--not networks--are resampled with replacement, and every
+#' network belonging to a sampled cluster is included in the replicate. Since
+#' clusters may have different sizes, the number of networks per replicate is
+#' not constant.
+#' @param cl Optional cluster object from [parallel::makeCluster()].
+#' @param cache Optional directory where replicate results are cached.
 boot_ergm <- function(
   networks,
   ergm_formula,
   ...,
   nboot = 100,
+  cluster_id = NULL,
   cl = NULL,
   cache = NULL
 ) {
@@ -395,9 +408,40 @@ boot_ergm <- function(
   # Preparing the boot
   nnets <- length(networks)
 
-  # Generating the indices for the bootstrapping
-  boot_indices <- sample.int(nnets, nboot * nnets, replace = TRUE) |>
-    matrix(ncol = nboot, nrow = nnets)
+  # Generating the indices for the bootstrapping. In both cases, boot_indices
+  # is a list of length nboot with the (possibly repeated) network indices of
+  # each replicate.
+  if (is.null(cluster_id)) {
+
+    boot_indices <- sample.int(nnets, nboot * nnets, replace = TRUE) |>
+      matrix(ncol = nboot, nrow = nnets)
+
+    boot_indices <- lapply(seq_len(nboot), \(i) boot_indices[, i])
+
+  } else {
+
+    if (length(cluster_id) != nnets)
+      stop(
+        "boot_ergm: `cluster_id` must have the same length as `networks` (",
+        nnets, "), but it has length ", length(cluster_id), "."
+      )
+
+    if (anyNA(cluster_id))
+      stop("boot_ergm: `cluster_id` cannot have missing values.")
+
+    # Networks grouped by cluster: sampling a cluster draws all of its networks
+    idx_by_cluster <- split(seq_len(nnets), cluster_id)
+    nclusters <- length(idx_by_cluster)
+
+    boot_indices <- lapply(
+      seq_len(nboot),
+      \(i) unlist(
+        idx_by_cluster[sample.int(nclusters, nclusters, replace = TRUE)],
+        use.names = FALSE
+      )
+    )
+
+  }
 
   # Sometimes, the execution order can make things off,
   # so we will shuffle the execution order
@@ -443,17 +487,17 @@ boot_ergm <- function(
       fun = \(i, ...) {
         run_with_cache(
           i, cache,
-          fitfun(boot_indices[, i], networks, ...)
+          fitfun(boot_indices[[i]], networks, ...)
           )
       },
       ...
     )
     
   } else {
-    lapply(boot_order, \(i, ...) 
+    lapply(boot_order, \(i, ...)
       run_with_cache(
         i, cache,
-        fitfun(boot_indices[, i], networks, ...)
+        fitfun(boot_indices[[i]], networks, ...)
       ),
     ...
     )

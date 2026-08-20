@@ -46,6 +46,32 @@ models/*.rmarkdown
 # Review/provenance material kept outside the active supplement build
 review/
 
-# Generated analysis figures in models/
-models/*.png
-models/*.svg
+# Generated analysis figures
+*.png
+*.svg
+models/*.tex
+models/*.log
+models/*.txt
+models/*-boot-ergms-cache/
+models/02-individual_ergms_fits/
+models/03-pooled-ergms-rds/
+
+# Superseded analyses and side projects, kept locally but out of the
+# submission repository (see README "Repository layout")
+abm/
+chong/
+fig/
+LTCF_final_report/
+ContainerFile
+ergm-terms.svg
+summary-stats.R
+
+# Convenience symlinks that point back into the repository
+data/data
+models/data
+models/models
+
+# HPC job scripts and their logs
+*.sh
+*.out
+*.err
