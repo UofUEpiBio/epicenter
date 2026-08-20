@@ -62,7 +62,7 @@ c(
 
 ```{r}
 # Naive 9 cluster (for now)
-cl <- parallel::makeForkCluster(40)
+cl <- parallel::makeForkCluster(39)
 
 set.seed(333)
 ans <- boot_ergm(

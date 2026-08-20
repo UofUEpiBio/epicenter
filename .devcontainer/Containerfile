@@ -16,6 +16,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Additional R packages
-RUN installGithub.r gvegayon/tabulergm@copilot/add-quarto-integration-capacity
+RUN installGithub.r gvegayon/tabulergm
 
 CMD ["bash"]
