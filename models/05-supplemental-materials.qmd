@@ -1,26 +1,11 @@
 ---
 format: pdf
-title: "Supplemental Materials for \"Exponential-Family Random Graph Models in Resident-Health Care Provider Networks: An Application using data from Long-term Healthcare Facilities in the United States\""
-author:
-  - George G. Vega Yon
-  - Chong Zhang
-  - Karim Khader
-  - Nai-Chung Nelson Chang
-  - Lindsay D. Visnovsky
-  - Alun Thomas
-  - Candace Haroldsen
-  - Kristina Stratford
-  - Matthew H. Samore
-date: 2025-04-01
-date-modified: 2026-07-08
+title: "Supplemental Materials for \"Exponential-Family Random Graph Models in Resident-Healthcare Provider Networks: An Application using data from Long-term Healthcare Facilities in the United States\""
 embed-resources: false
 execute:
   echo: false
   message: false
   warning: false
-include-in-header:
-  text: |
-    \usepackage{geometry}
 ---
 
 
@@ -28,7 +13,7 @@ This document presents supplemental analyses for the final pooled bipartite ERGM
 
 The analyses below are annotated to clarify the purpose of each step and to make the reported diagnostics reproducible.
 
-Throughout the prose, "resident" denotes individuals living in the participating long-term care facility units, and "HCP" denotes health care providers. Some saved model objects and coefficient names retain the legacy code labels `n_patients` and `n_hcp`; in this supplement, those labels refer to residents and HCPs, respectively.
+Throughout the prose, "resident" denotes individuals living in the participating long-term care facility units, and "HCP" denotes health care providers. Model terms are reported with the same names used in the model-comparison table of the main manuscript (for example, "Edges x centered log n_R" and "HCP-centered GWDSP"), where `n_R` is the number of residents and `n_H` the number of HCPs in a network. Some saved model objects and coefficient names retain the legacy code labels `n_patients` and `n_hcp`; those labels refer to residents and HCPs, respectively, and are translated to the manuscript names before display.
 
 ```{r}
 #| label: load-packages-and-data
@@ -41,14 +26,63 @@ suppressPackageStartupMessages(source('models/helpers.R'))
 # Facility blocks used by the block bootstrap in the 04* documents
 cluster_id <- facility_cluster_id(networks)
 
-display_term_label <- function(x) {
-  x
+# Map the internal ERGM coefficient names onto the term labels used in the
+# manuscript's model-comparison table. `n_R` denotes the number of residents
+# and `n_H` the number of HCPs in a network (legacy code labels: `n_patients`
+# and `n_hcp`).
+TERM_LABELS <- c(
+  "N(1)~edges" = "Edges",
+  "N(I(log(n_patients) - mean(log(n_patients))))~edges" =
+    "Edges x centered log n_R",
+  "N(I(log(n_hcp) - mean(log(n_hcp))))~edges" =
+    "Edges x centered log n_H",
+  "b1factor.type.CNA" = "HCP role: CNA",
+  "b1factor.type.Nurse" = "HCP role: Nurse",
+  "b1factor.type.PT/OT" = "HCP role: PT/OT",
+  "b1factor.type.RT" = "HCP role: RT",
+  "N(1)~gwb1dsp.fixed.0.84" = "HCP-centered GWDSP",
+  "N(I(log(n_patients) - mean(log(n_patients))))~gwb1dsp.fixed.0.84" =
+    "HCP-centered GWDSP x centered log n_R",
+  "N(I(log(n_hcp) - mean(log(n_hcp))))~gwb1dsp.fixed.0.84" =
+    "HCP-centered GWDSP x centered log n_H",
+  "b2factor.dialysis.Yes" = "Resident care need: Dialysis",
+  "b2factor.wound_care.Yes" = "Resident care need: Wound care",
+  "b2factor.bedridden.Yes" = "Resident care need: Bedridden",
+  "b2factor.ventilator.Yes" = "Resident care need: Ventilator",
+  "b2factor.mdro.Yes" = "Resident care need: MDRO",
+  "b2nodematch.diabetes.Yes" = "Resident nodematch: Diabetes",
+  "b2nodematch.mdro.Yes" = "Resident nodematch: MDRO",
+  "b2nodematch.ventilator.Yes" = "Resident nodematch: Ventilator",
+  "b2nodematch.wound_care.Yes" = "Resident nodematch: Wound care",
+  "b2nodematch.bedridden.Yes" = "Resident nodematch: Bedridden",
+  "b1nodematch.type.CNA" = "HCP role nodematch: CNA",
+  "b1nodematch.type.Nurse" = "HCP role nodematch: Nurse",
+  "b1nodematch.type.Other" = "HCP role nodematch: Other",
+  "b1nodematch.type.PT/OT" = "HCP role nodematch: PT/OT",
+  "b1nodematch.type.RT" = "HCP role nodematch: RT",
+  "b1degree0" = "Offset: HCP degree 0",
+  "b2degree0" = "Offset: resident degree 0",
+  "offset(b1degree0)" = "Offset: HCP degree 0",
+  "offset(b2degree0)" = "Offset: resident degree 0"
+)
+
+#' Translate ERGM coefficient names into manuscript term labels
+#' @param x Character vector of internal coefficient/statistic names.
+#' @param wrap Logical. If `TRUE`, break the label after the term family so
+#' that long labels fit in figure facet strips.
+#' @return Character vector of labels; unmatched names are returned as is.
+display_term_label <- function(x, wrap = FALSE) {
+  lab <- unname(TERM_LABELS[x])
+  lab[is.na(lab)] <- x[is.na(lab)]
+  if (wrap)
+    lab <- sub(": ", ":\n", lab, fixed = TRUE)
+  lab
 }
 ```
 
 ## Observed sufficient statistics in the final model
 
-The table below reports the observed value of each modeled sufficient statistic, aggregated across the 93 observed networks and averaged per network. For the `N(...)` terms, the totals are the size-weighted statistics used directly by the fitted multi-ERGM, and the range is computed across the per-network observed contributions to each statistic.
+The table below reports the observed value of each modeled sufficient statistic, aggregated across the 93 observed networks and averaged per network. For the size-interacted terms (those labeled "x centered log n_R" or "x centered log n_H"), the totals are the size-weighted statistics used directly by the fitted multi-ERGM, and the range is computed across the per-network observed contributions to each statistic.
 
 ```{r}
 #| label: observed-sufficient-statistics
@@ -335,31 +369,13 @@ The relationship with network size is approximately linear. This suggests that t
 
 ## Final model
 
-The final model includes log-size adjustments for the edges term and for the geometrically weighted dyadwise shared-partner term (`gwb1dsp`). Specifically, the model allows both terms to vary with centered log counts of residents and HCPs. The table compares the naive model-based standard errors with bootstrap-corrected standard errors from the 200 bootstrap fits.
+The final model includes log-size adjustments for the Edges term and for the HCP-centered geometrically weighted dyadwise shared-partner term (HCP-centered GWDSP, `gwb1dsp` in code). Specifically, the model allows both terms to vary with centered log counts of residents (`log n_R`) and HCPs (`log n_H`). The naive model-based standard errors and the bootstrap-corrected standard errors from the 200 SA replicates are compared in the final-model table of the main manuscript.
 
-The bootstrap standard errors come from a *block* bootstrap that resamples facilities rather than networks. Each network is a facility-unit observed on a given date, so the same facility contributes several networks; the `r length(networks)` networks come from `r length(unique(cluster_id))` facilities. In each replicate we draw facilities with replacement and include every network belonging to a drawn facility, so networks from the same facility are kept together and the within-facility correlation is carried into the resampling distribution. Because facilities differ in how many networks they contribute, the number of networks per replicate is not constant.
+The reported point estimates are MC-MLE coefficients; the stochastic-approximation (SA) algorithm is used only as the estimator applied inside each bootstrap replicate, never for point estimation.
 
-Several terms that are statistically significant under the naive model (for example, `N(1)~edges`, `N(log(n_hcp))~edges`, `b1factor.type.CNA`, `b1nodematch.type.Other`, and `b1nodematch.type.RT`) lose significance when the larger bootstrap standard errors are used. This pattern underscores the importance of accounting for within-facility correlation, and more generally for non-independence across networks, when interpreting uncertainty.
+The bootstrap standard errors come from a *block* bootstrap that resamples facility-unit groups rather than individual networks. Each network is a facility unit observed on a given date, and most units were visited again three to six months later, so the `r length(networks)` networks come from `r length(unique(cluster_id))` facility-unit groups; two units in the same facility are treated as separate groups, and `r sum(table(cluster_id) == 2)` of the groups contain exactly two networks. In each replicate we draw groups with replacement and include every network belonging to a drawn group, so repeat visits to the same unit are always drawn together and the within-unit correlation is carried into the resampling distribution. Because groups differ in how many networks they contribute, the number of networks per replicate is not constant.
 
-```{r}
-#| label: final-model
-#| results: asis
-naive_fit <- fits_boot$naive_fit
-naive_texreg <- texreg::extract(naive_fit)
-coef_labels <- display_term_label(naive_texreg@coef.names)
-texreg::texreg(
-  # file = "models/04-boot-ergms-results.html",
-  list(
-    'Naive model'=naive_fit,
-    'Block bootstrap model'=naive_fit
-    ),
-  override.se = list(naive_texreg@se, fits_boot$bootstrap_sds),
-  override.pvalues = list(naive_texreg@pvalues, fits_boot$pvalues),
-  custom.coef.names = coef_labels,
-  single.row = FALSE,
-  use.packages = FALSE
-)
-```
+Several terms that are statistically significant under the naive model -- the HCP-size edge interaction (Edges x centered log n_H), HCP role: CNA, the resident nodematch effects for diabetes and ventilator use, and the Other and RT HCP role nodematch effects -- lose significance when the larger bootstrap standard errors are used. This pattern underscores the importance of accounting for the correlation between repeat visits to the same unit, and more generally for non-independence across networks, when interpreting uncertainty. The table showing the full set of results can be found in the main manuscript.
 
 ## Goodness-of-fit diagnostics
 
@@ -398,12 +414,8 @@ plot_data <- lapply(vars, \(v) {
 }) |>
   rbindlist()
 
-# Re-label variables for readability.
-# - b*factor.[Nurse]: Factor(Nurse) 
-# - b*nodematch[type][Nurse]: Node match (Nurse)
-# - b*nodematch.mdro.Yes: Node match (MDRO=Yes)
-plot_data$variable <- gsub("b.factor\\.([a-zA-Z0-9_]+).+", "Factor(\\1)", plot_data$variable)
-plot_data$variable <- gsub("b.nodematch\\.([a-zA-Z0-9_]+)\\.([a-zA-Z0-9_]+)", "Match\n(\\1=\\2)", plot_data$variable)
+# Re-label variables using the manuscript's term names (see TERM_LABELS).
+plot_data$variable <- display_term_label(plot_data$variable, wrap = TRUE)
 
 ggplot(plot_data, aes(x = observed, y = fitted)) +
   geom_point() +
@@ -500,7 +512,7 @@ if (interactive())
 
 The final MC-MLE fit had a Joint Geweke diagnostic p-value of `r round(joint_geweke, 2)`, and the trace and density plots show sampled sufficient statistics mixing around their observed values.
 
-We further investigate model fit by examining the square root of the absolute standardized Pearson residuals, `sqrt(|residual|)`, for the baseline edges and `gwb1dsp` terms across networks. This transformation makes large residuals easier to see while preserving their relative magnitude. Networks with transformed residuals exceeding 2 are labeled as potential outliers.
+We further investigate model fit by examining the square root of the absolute standardized Pearson residuals, `sqrt(|residual|)`, for the Edges and HCP-centered GWDSP terms across networks. This transformation makes large residuals easier to see while preserving their relative magnitude. Networks with transformed residuals exceeding 2 are labeled as potential outliers.
 
 ```{r}
 #| label: regress-networks
@@ -518,14 +530,14 @@ gg_err <- plot_gof(
   gof_final,
   networks,
   term = term_edges,
-  ylab = expression(sqrt(abs("Std. Pearson Res. (edges)")))
+  ylab = expression(sqrt(abs("Std. Pearson Res. (Edges)")))
 )
 
 gg_gwb1dsp <- plot_gof(
   gof_final,
   networks,
   term = term_gwb1dsp,
-  ylab = expression(sqrt(abs("Std. Pearson Res. (gwb1dsp)")))
+  ylab = expression(sqrt(abs("Std. Pearson Res. (HCP-centered GWDSP)")))
 )
 
 fig_gof_residuals <- patchwork::wrap_plots(
@@ -605,81 +617,3 @@ data.table(
 
 The omnibus Wald test gives a chi-square statistic of 10.84 (df = 6, p = 0.094). Thus, there is no statistically significant evidence at alpha = 0.05 that edge-count prediction errors differ by state. This supports the interpretation that the final model captures state-level variation in edge counts reasonably well, even without an explicit state interaction, while leaving open the possibility of weak residual state differences.
 
-## Alternative GWDSP specifications
-
-The following table compares three related model specifications. All three sets of standard errors and p-values come from the same facility-blocked bootstrap described above, so the columns differ only in the model specification.
-
-```{r}
-#| label: alternative-gwdsp-specifications
-#| results: asis
-model_comparison <- list(
-  "Baseline model" = list(
-    fit = readRDS("models/03-pooled-ergms-rds/res4_gwdsp_var_bnodematch.rds"),
-    boot = readRDS("models/04b-boot-ergms-results.rds")
-  ),
-  "Intercept with state model" = list(
-    fit = readRDS("models/03-pooled-ergms-rds/res6_full_and_facility_mcmle.rds"),
-    boot = readRDS("models/04c-boot-ergms-results.rds")
-  ),
-  "GWDSP x log(n) model" = list(
-    fit = readRDS("models/03-pooled-ergms-rds/res6_full_and_logn_gwdsp.84mcmle.rds"),
-    boot = readRDS("models/04d-boot-ergms-results.rds")
-  )
-)
-
-check_bootstrap_alignment <- function(model_name, model_fit, boot_fit) {
-  coef_names <- names(coef(model_fit))
-
-  if (!identical(coef_names, names(boot_fit$bootstrap_sds))) {
-    stop("Bootstrap standard errors do not match coefficient names for ", model_name)
-  }
-
-  if (!identical(coef_names, names(boot_fit$pvalues))) {
-    stop("Bootstrap p-values do not match coefficient names for ", model_name)
-  }
-
-  if (!isTRUE(all.equal(coef(model_fit), coef(boot_fit$naive_fit), tolerance = 1e-8))) {
-    stop("Model estimates do not match the bootstrap naive fit for ", model_name)
-  }
-}
-
-invisible(Map(
-  f = check_bootstrap_alignment,
-  model_name = names(model_comparison),
-  model_fit = lapply(model_comparison, `[[`, "fit"),
-  boot_fit = lapply(model_comparison, `[[`, "boot")
-))
-
-coef_labels <- display_term_label(unique(unlist(
-  lapply(model_comparison, \(x) names(coef(x$fit)))
-)))
-
-texreg::texreg(
-  lapply(model_comparison, `[[`, "fit"),
-  override.se = lapply(model_comparison, \(x) x$boot$bootstrap_sds),
-  override.pvalues = lapply(model_comparison, \(x) x$boot$pvalues),
-  custom.coef.names = coef_labels,
-  single.row = FALSE,
-  fontsize = "small",
-  use.packages = FALSE
-)
-```
-
-## Table with terms used in the model
-
-The table below provides a compact schematic for the main term families used in the final model and the related model-comparison specifications.
-
-```{r}
-#| results: asis
-#| label: model-terms-table
-library(tabulergm)
-tabulergm_table(
-  net ~
-    edges +
-    b1factor("type") + gwb1dsp +
-    b2factor("dialysis") +
-    b2nodematch("ventilator") +
-    b1nodematch("type"),
-  format = "markdown"
-)
-```
