@@ -1,0 +1,1100 @@
+---
+title: "Bipartite networks of health care workers and residents in long-term care facilities"
+format: html
+editor_options: 
+  markdown: 
+    wrap: 80
+date: 2023-08-26
+author:
+  - Chong Zhang
+  - George G. Vega Yon
+date-modified: 2026-06-16
+embed-resources: true
+---
+## Overview
+
+Recent updates:
+
+1. We removed 6 networks with only 1 HCW - given the bipartite and no-isolate constraints they are fixed and no variation.
+
+2. For ergm terms present in only a subset of networks, we now restricted their evaluation in only the subset of networks. For starmix(2),  at least two such nodes should be present for the network to be included.
+
+3. There are only 3 physicians and 1 PA/NP in all the networks, therefore it is not very meaningful to evaluate the hemophily in these two types of HCWs. We grouped physician with 'Other', and PA/NP with 'Nurse'.
+
+4. We detected one outlier, and removed it when fitting models to speed up the convergence, and for the final model selected, we added it back in.   
+
+# Statistical methods
+
+We have interaction data between HCWs and residents from a sample of 100 networks. ERGMs were used to understand network structure and its associations with nodal attribues. Given the fact that only interactions can be recorded in the data, we used constriction to forbid isolates. As a result, we excluded 7 networks with only 1 HCWS, because by the definitions of bipartite + no isolates, there are no variations in these networks given the set of nodes (saturated?), leaving 93 networks. Because our data is a sample of multiple networks, the N() ergm term in package ergm.mulit{} was used to evaluate each term jointly across multiple networks. ERGM terms we examined included edges and its interaction with network size, b2start(2), b2concurrent (residents having more than 1 HCWs), gwb1dsp (geometrically weighted shared partners between HCWs), HCW type (Nurse, CNA, PT/OT/RT, Other), and resident care needs (dialysis, wound_care, bedridden, ventilator, diabetes, wheelchair, mdro). Terms are added one at a time to ensure convergence (assessed using trace plot) and reasonable goodness of fit (assessed using standardized pearson's residuals using function gofN()). For highly correlated terms (b2star, b2condurrent, gwb1dsp), we kept the one that gives the smallest AIC/BIC and dropped the rest. As the model got more complex and the algorithms were slow to converge, we removed one outlier to speed up the convergence. The largest model with all terms being significant was selected as the best model. We then used the estimated coefficients from this model as initial values to fit the model on all 93 networks, and compared results before and after adding back the outlier.
+
+
+
+```{r}
+#| label: packages
+#| message: false
+#| warning: false
+source("models/helpers.R")
+load('data/network93_f2.RData') # a list of 93 networks to fit ERGMs
+```
+
+
+# Fitting ERGMs
+
+## Model 0: edges only, with scaling by log(n) and state level effect
+
+```{r}
+#| label: prepare-data
+model_data <- set_ergm(nets = networks)
+```
+
+We will also be applying scaling based on the number of actors/entities in the network. We calculate the number of each using the following code:
+
+Common controls for ergm models: we use Stochastic approximation since it is fast. 
+```{r}
+#| label: controls
+default_control_mcmle <- control.ergm(seed = 55551)
+
+default_control_sa <- control.ergm(
+  seed            = 44485,
+  main.method     = "Stochastic-Approximation", # Robbins-Monro Stochastic Approx.
+  SA.nsubphases   = 4 * 1, # 1 the default
+  SA.burnin       = 1024 * 4, # Twice the default
+  SA.interval     = 1024 * 4 # four times... This is being passed to SA instead
+)
+```
+
+Model 0: edges only.
+Since we do not have isolates in our network by design, we restrict the network by adding offset terms b1degree(0) and b2degree(0) with coefficients -Inf.
+```{r}
+#| label: model0
+#| message: false
+#| warning: false
+
+with_restore("res0", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~log(n_tot) + I(log(n_tot)^2))+
+    offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+with_restore("res0_state", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~log(n_tot) + facility_state)+
+    offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+with_restore("res0_state2", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~log(n_tot) + I(log(n_tot)^2) + facility_state)+
+    offset(b1degree(0))+offset(b2degree(0)),
+    offset.coef = c(-Inf, -Inf),
+    control = default_control_mcmle
+))
+
+with_restore("res0_state_centered", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~I(log(n_tot) - mean(log(n_tot))) + facility_state)+
+    offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+texreg::screenreg(
+  list(
+    res0,
+    res0_state,
+    res0_state2,
+    res0_state_centered
+  ),
+  single.row = TRUE
+)
+```
+
+Model 4, the mean-centered, is the one with best fit overall. Adding the square term for log(n) did not improve the fit, but adding the state level effect did. Let's investiage the convergence:
+
+```{r}
+#| label: model0-convergence
+#| eval: false
+mcmc.diagnostics(res0_state_centered)
+```
+
+The model does a good job in convergence: the MCMC trace shows good mixing, the omnibus test is not significant, and the autocorrelation reduces decently fater the third lag. We will be using this model as the baseline for the subsequent models.
+
+```{r}
+best_model <- res0_state_centered
+
+with_restore("res0_hcp", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~I(log(n_hcp) - mean(log(n_hcp))) + facility_state)+
+    offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+with_restore("res0_patients", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~I(log(n_patients) - mean(log(n_patients))) + facility_state) +
+    offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+with_restore("res0_patients_no_state", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~I(log(n_hcp) - mean(log(n_hcp)))) +
+    offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+with_restore("res0_patients_no_state2", model_data, ergm(
+  Networks(nets) ~
+    N(
+      ~edges,
+      ~I(log(n_hcp) - mean(log(n_hcp))) + I(log(n_hcp)^2 - mean(log(n_hcp)^2))
+      ) +
+    offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+texreg::screenreg(
+  list(
+    best_model, res0_hcp, res0_patients, res0_patients_no_state,
+    res0_patients_no_state2
+    ),
+  single.row = TRUE
+)
+```
+
+The Model 2 (correcting for the log(n_hcp)) has the best fit overall. This is inline with what we expect in theory. The degree distribution of HCPs is more likely to be affected by the network size than that of patients, because as the number of patients increases, the degree of HCPs increases, but the degree of patients does not necessarily increase as much. Thus, adjusting for log(n_hcp) is more appropriate in this application. We will be using log(n_hcp) for the rest of the models. Let's investiagete convergence for this model:
+
+```{r}
+#| label: model0_hcp-convergence
+#| eval: false
+mcmc.diagnostics(res0_hcp)
+```
+
+The omnibus test is not significant, the MCMC trace shows good mixing, and the autocorrelation reduces decently after the third lag. We will be using this model as the baseline for the subsequent models. **Nevertheless, the individual fits are worse off, particularly for the OR facilities**; let's see if we can adjust for both simultaneously:
+
+```{r}
+with_restore("res0_both", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_hcp) - mean(log(n_hcp))) +
+      I(log(n_tot) - mean(log(n_tot))) +
+      + facility_state
+      )+
+    offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+texreg::screenreg(
+  list(best_model, res0_hcp, res0_patients, res0_both),
+  single.row = TRUE
+)
+```
+
+At first look, it seems this approach performs significantly better. Let's look at the convergence diagnostics:
+
+```{r}
+#| label: model0_both-convergence
+#| eval: false
+mcmc.diagnostics(res0_both)
+```
+
+Looking at the diagnostics, this model did not converge well. The omnibus test is significant, so we are worse off than the previous model. Although scaling by the number of healthcare providers seemed like the right theoretical approach, the model is overall performing worse than just scaling by the number of nodes. We will be using the model with log(n) as the baseline for the subsequent models.
+
+## Controling for type of HCP
+
+```{r}
+#| label: model-hcp-type
+best_model <- res0_hcp
+
+with_restore("res1_hcp_type", model_data, ergm(
+  Networks(nets) ~
+    N(
+      ~edges,
+      ~ 
+        I(log(n) - mean(log(n))) +
+        I(log(n_hcp) - mean(log(n_hcp))) +
+        facility_state)+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+with_restore("res1_hcp_type2", model_data, ergm(
+  Networks(nets) ~
+    N(
+      ~edges,
+      ~ 
+        I(log(n_hcp) - mean(log(n_hcp))) +
+        facility_state)+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+texreg::screenreg(
+  list(
+    best_model,
+    res0_both,
+    res1_hcp_type,
+    res1_hcp_type2
+  ),
+  single.row = TRUE
+)
+```
+
+Let's check the convergence diagnostics:
+
+```{r}
+#| label: model-hcp-type-convergence
+#| eval: false
+mcmc.diagnostics(res1_hcp_type)
+```
+
+Since the overall fit is good but the omnibus test is failing, let's see if adding more structure changes things. Comparing the model in which we had both log(n) and log(n_hcp) with the model that only has log(n_hcp): The model featuring both variables has a better fit with better omnibus test results. So we will use that for the future.
+
+## Investigating the effect of gwb1dsp
+
+Since we expect the healthcare providers been somewhat evenly spread across residents, we expect to see a tendency of negative GWDSP effect for the HCP. Let's start with a basic model. Since the process generally is slow to converge, we will instead use the Stochastic Approximation method for now on:
+
+Add b2 2-star (second level 2-stars) term:
+```{r}
+#| label: model1
+#| message: false
+#| warning: false
+
+with_restore("res1_gwb1dsp", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~ I(log(n_hcp) - mean(log(n_hcp))) + facility_state)+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 40) + 
+    +offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+with_restore("res1_gwb1dsp2", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n) - mean(log(n))) +
+      I(log(n_hcp) - mean(log(n_hcp))) +
+      facility_state
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 40) + 
+    +offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+tabulator(
+  list(
+    best_model,
+    res1_hcp_type,
+    res1_gwb1dsp,
+    res1_gwb1dsp2
+  ),
+  single.row = TRUE
+)
+```
+
+Although the AIC and BIC suggest that the new model is better, we need to check the convergence and goodness of fit before making a conclusion.
+
+```{r}
+#| label: model1_mcmle_convergence
+#| eval: false
+mcmc.diagnostics(res1_gwb1dsp)
+```
+
+Both GWDSP models show substantially improved AIC compared to models without GWDSP. By AIC, the model that includes both log(n) and log(n_hcp) terms (res1_gwb1dsp2) is better (32015.74 vs 32616.60). Similarly, the Joint Geweke p-value for res1_gwb1dsp (only log(n_hcp)) is 0.04, indicating some MCMC mixing issues, while res1_gwb1dsp2 (both terms) has a Joint Geweke of 0.76, indicating better convergence.
+
+Using Stewart, Schweinberger, Bojanowski, and Morris (2019) (as suggested by the reviewer), I estimated the decay parameter directly. I was not able to directly estimate it with the interaction effect as ERGM failed with an error `objfun returned gradient not having all elements finite`.
+
+## Looking into other terms
+
+Now add b2factor and b2starmix (just Nurse for now)
+```{r}
+#| label: model5
+#| eval: true
+#| message: false
+#| warning: false
+
+best_model <- res1_gwb1dsp
+
+with_restore("res2_b2factor_terms", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~ I(log(n_hcp) - mean(log(n_hcp))) + facility_state)+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 40) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2factor('diabetes') +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+with_restore("res2_b2factor_terms2", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n) - mean(log(n))) +
+      I(log(n_hcp) - mean(log(n_hcp))) +
+      facility_state
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 40) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2factor('diabetes') +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+with_restore("res2_b2factor_terms2_logpat", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp))) +
+      facility_state
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 40) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2factor('diabetes') +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+with_restore("res2_b2factor_terms2_logpat_uncetered", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients)) +
+      I(log(n_hcp)) +
+      facility_state
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 40) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2factor('diabetes') +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+
+with_restore("res2_b2factor_terms_nogwdsp", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~ I(log(n_hcp) - mean(log(n_hcp))) + facility_state)+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2factor('diabetes') +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+
+
+tabulator(
+  list(
+    best_model,
+    res2_b2factor_terms_nogwdsp,
+    res2_b2factor_terms,
+    res2_b2factor_terms2,
+    res2_b2factor_terms2_logpat,
+    res2_b2factor_terms2_logpat_uncetered
+  ),
+  single.row = TRUE
+)
+```
+
+Comparing the centered with the uncentered models, the centered model converged quicker (120,553,472 vs 207,552,512) and had better convergence properties (Joint Geweke 0.83 vs 0.31). It is important to note that both models yield roughly the same results in terms of estimated coefficients. This is mostly an MCMC artifact used to improve the mixing of the Markov chain.
+
+The model with both log(n) and log(n_hcp) terms performs worse if we look at the omnibus test. The overall fit drops, but, perhaps, we can simply run it for a bit longer (both) and assess if we can improve the fit:
+
+```{r}
+with_restore("res2_b2factor_terms_bis", model_data, ergm(
+  formula(res2_b2factor_terms),
+  control = control.ergm(
+    seed = 3313,
+    init = coef(res2_b2factor_terms),
+    MCMLE.confidence = .995
+  )
+))
+
+with_restore("res2_b2factor_terms2_bis", model_data, ergm(
+  formula(res2_b2factor_terms2),
+  control = control.ergm(
+    seed = 3313,
+    init = coef(res2_b2factor_terms2),
+    MCMLE.confidence = .995
+  )
+))
+
+texreg::screenreg(
+  list(
+    res2_b2factor_terms,
+    res2_b2factor_terms_bis,
+    res2_b2factor_terms2,
+    res2_b2factor_terms2_bis
+  ),
+  single.row = TRUE
+)
+```
+
+In this case, `res2_b2factor_terms_bis` does a better job in the omnibus test but it still fails to reject the null hypothesis. At the same time, `res2_b2factor_terms2_bis` does a worse job. The overall coefficients do not change much between the two runs.
+
+```{r}
+with_restore("gofN_res2_b2factor_terms", list(), {
+  gofN(res2_b2factor_terms)
+})
+if (FALSE && interactive()) {
+  pdf("gofN_res2_b2factor_terms.pdf")
+  op <- par(mfrow = c(3, 2))
+  plot(gofN_res2_b2factor_terms)
+  par(op)
+  dev.off()
+}
+```
+
+## Fitting the model using the b2starmix terms
+
+```{r}
+best_model<- res2_b2factor_terms2_logpat
+
+with_restore("res3_b2starmix_terms", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp))) +
+      facility_state
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    # gwb1dsp(fixed = FALSE, cutoff = 40) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b1starmix(2, 'diabetes') +
+    b2starmix(2, 'type', base = c(3)) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+with_restore("res3_b2starmix_terms_gwdsp", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp))) +
+      facility_state
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 100) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b1starmix(2, 'diabetes') +
+    b2starmix(2, 'type', base = c(3)) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+with_restore("res3_bnodematch_terms", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp))) +
+      facility_state
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    # gwb1dsp(fixed = FALSE, cutoff = 40) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+with_restore("res3_bnodematch_terms0", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp))) +
+      facility_state
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    # gwb1dsp(fixed = FALSE, cutoff = 40) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = 0, diff = TRUE) +
+    b1nodematch('type', alpha = 0, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+with_restore("res3_bnodematch_terms_no_state", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp)))
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    # gwb1dsp(fixed = FALSE, cutoff = 40) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+tabulator(
+  list(
+    best_model,
+    res3_b2starmix_terms,
+    res3_b2starmix_terms_gwdsp,
+    res3_bnodematch_terms,
+    res3_bnodematch_terms0,
+    res3_bnodematch_terms_no_state
+  ),
+  single.row = TRUE
+)
+```
+
+Among the b*nodematch models, the model that includes the state term (facility) is better than the model without it, both by AIC (32230.74 vs 32318.71) and by the Joint Geweke convergence diagnostic (0.49 vs 0.13). The b*starmix model with GWDSP (res3_b2starmix_terms_gwdsp, AIC 31727.30) shows the best fit overall in this comparison. For the next batch, we will try to re-estimate the model using the GWDSP term combined with b*nodematch terms. Before we do such, let's first evaluate the individual counts of each variable to assess their correlatedness
+
+```{r}
+gwdsp_and_nodematch <- lapply(model_data$nets, \(net) {
+  ans <- summary(net ~ gwb1dsp(0.7, fixed = TRUE) +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2)
+    )
+}) |> do.call(what=rbind)
+
+cor(gwdsp_and_nodematch)
+
+```
+
+## Estimating the model with the GWDSP term + bnodematch
+
+```{r}
+with_restore("res4_gwdsp_bnodematch", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp)))
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(0.7, fixed = TRUE) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+with_restore("res4_gwdsp_bnodematch_no_logres", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_hcp) - mean(log(n_hcp)))
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(0.7, fixed = TRUE) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = default_control_mcmle
+))
+
+init2 <- coef(res4_gwdsp_bnodematch_no_logres)
+names(init2)[names(init2) == "gwb1dsp.fixed.0.7"] <- "gwb1dsp"
+
+with_restore("res4_gwdsp_var_bnodematch_no_logres", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_hcp) - mean(log(n_hcp)))
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 100) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = control.ergm(
+    init = init2,
+    seed = 112
+  )
+))
+
+tabulator(
+  list(
+    best_model,
+    res3_bnodematch_terms_no_state,
+    res4_gwdsp_bnodematch,
+    res4_gwdsp_bnodematch_no_logres,
+    res4_gwdsp_var_bnodematch_no_logres
+  ),
+  single.row = TRUE
+)
+```
+
+Let's look at the MCMC diagnostics.
+
+```{r}
+#| eval: false
+mcmc.diagnostics(res4_gwdsp_var_bnodematch_no_logres)
+```
+
+Let's do another run of the last model, but including the log(n_patients) term.
+
+```{r}
+with_restore("res4_gwdsp_var_bnodematch", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp)))
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 100) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = control.ergm(
+    seed = 112
+  )
+))
+
+tabulator(
+  list(
+    best_model,
+    res4_gwdsp_var_bnodematch_no_logres,
+    res4_gwdsp_var_bnodematch
+  ),
+  single.row = TRUE
+)
+```
+
+Let's look into the MCMC diagnostics.
+
+```{r}
+#| eval: false
+mcmc.diagnostics(res4_gwdsp_var_bnodematch)
+```
+
+## Reproducing the original paper model
+
+```{r}
+#| label: res5_original
+with_restore("res5_original", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~ I(log(n)))+
+    # Using "Other" as the reference level
+    gwb1dsp(0.75, fixed = TRUE) +
+    # Nodal effects
+    b2factor('wound_care', levels = 2) +
+    b2factor('bedridden', levels = 2) +
+    # HCW centered 2-star mix
+    b1starmix(2, 'ventilator') +
+    b1starmix(2, 'diabetes') +
+    # Resident-centered 2-star mix
+    b2starmix(2, 'Nurse') +
+    b2starmix(2, 'PTOTRT') +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = control.ergm(
+    seed = 112,
+    # Original estimates
+    init = c(
+      # edges, log(n) x edgs, gwdsp
+      3.58, -1.11, -1.02,
+      # Resident under wound, bedridden
+      0.16, 0.2,
+      # HCW centered 2-star mix
+      0.01, 0.02, 0.04, 0.05,
+      # Resident-centered 2-star mix
+      -.11, -.37, .11, -.25,
+      # offset
+      -Inf, -Inf
+      )
+  )
+))
+
+tabulator(
+  list(
+    best_model,
+    res4_gwdsp_var_bnodematch_no_logres,
+    res4_gwdsp_var_bnodematch,
+    res5_original
+  ),
+  single.row = TRUE
+)
+```
+
+# Extra
+
+We will try to fit the model using the state intercept
+
+
+```{r}
+#| label: res6_full_and_facility
+with_restore("res6_full_and_facility", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp))) +
+      facility_state
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 100) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = control.ergm(
+    main.method = "Stochastic-Approximation",
+    seed = 112,
+    SA.samplesize = 1024 * 8,
+    SA.burnin = 1024 * 64, # Double
+    SA.interval = 1024 * 8,
+    SA.phase3_n = 1024 * 4
+  )
+))
+
+with_restore("res6_full_and_facility_mcmle", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp))) +
+      facility_state
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    gwb1dsp(fixed = FALSE, cutoff = 100) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = control.ergm(
+    init = coef(res6_full_and_facility),
+    seed = 112
+  )
+))
+
+tabulator(
+  list(
+    res4_gwdsp_var_bnodematch,
+    res6_full_and_facility,
+    res6_full_and_facility_mcmle
+  ),
+  single.row=TRUE
+)
+```
+
+Using an intercept for the GWDSP term
+
+```{r}
+with_restore("res6_full_and_facility_gwdsp.75", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp)))
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    N(~gwb1dsp(0.75, fixed = TRUE), ~facility_state) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = control.ergm(
+    main.method = "Stochastic-Approximation",
+    seed = 112,
+    SA.samplesize = 1024 * 8,
+    SA.burnin = 1024 * 64, # Double
+    SA.interval = 1024 * 8,
+    SA.phase3_n = 1024 * 4
+  )
+))
+
+with_restore("res6_full_and_facility_gwdsp.84", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp)))
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    N(~gwb1dsp(0.84, fixed = TRUE), ~facility_state) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+  control = control.ergm(
+    main.method = "Stochastic-Approximation",
+    seed = 112,
+    SA.samplesize = 1024 * 8,
+    SA.burnin = 1024 * 64, # Double
+    SA.interval = 1024 * 8,
+    SA.phase3_n = 1024 * 4
+  )
+))
+
+tabulator(
+  list(
+    res6_full_and_facility_gwdsp.75,
+    res6_full_and_facility_gwdsp.84
+  ),
+  single.row=TRUE
+)
+```
+
+The model using the GWDSP term with decay of 0.84 shows the best fit. We tried fitting the model using MC-MLE, but, after a couple of tries and more than four hours, the model never mixed properly.
+
+An additional model to test is whether the log(n) interactions with the GWDSP term improve the fit.
+
+```{r}
+with_restore("res6_full_and_logn_gwdsp.84", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp)))
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    N(
+      ~gwb1dsp(0.84, fixed = TRUE),
+      ~I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp)))
+      ) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+    control = control.ergm(
+    main.method = "Stochastic-Approximation",
+    seed = 112,
+    SA.samplesize = 1024 * 8,
+    SA.burnin = 1024 * 64, # Double
+    SA.interval = 1024 * 8,
+    SA.phase3_n = 1024 * 4
+  )
+))
+
+with_restore("res6_full_and_logn_gwdsp.84mcmle", model_data, ergm(
+  Networks(nets) ~
+    N(~edges, ~
+      I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp)))
+      )+
+    # Using "Other" as the reference level
+    b1factor("type", levels = -3) +
+    N(
+      ~gwb1dsp(0.84, fixed = TRUE),
+      ~I(log(n_patients) - mean(log(n_patients))) +
+      I(log(n_hcp) - mean(log(n_hcp)))
+      ) +
+    b2factor('dialysis') +
+    b2factor('wound_care') +
+    b2factor('bedridden') +
+    b2factor('ventilator') +
+    b2factor('mdro') +
+    b2nodematch('diabetes', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('mdro', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('ventilator', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('wound_care', alpha = .25, diff = TRUE, levels = 2) +
+    b2nodematch('bedridden', alpha = .25, diff = TRUE, levels = 2) +
+    b1nodematch('type', alpha = .25, diff = TRUE) +
+  offset(b1degree(0))+offset(b2degree(0)),
+  offset.coef = c(-Inf, -Inf),
+    control = control.ergm(
+    init = coef(res6_full_and_logn_gwdsp.84),
+    seed = 112
+  )
+))
+
+# Final comparison
+tabulator(
+  list(
+    res4_gwdsp_var_bnodematch,
+    res6_full_and_facility_gwdsp.84,
+    res6_full_and_logn_gwdsp.84,
+    res6_full_and_logn_gwdsp.84mcmle
+  ),
+  single.row = TRUE
+)
+
+```
+
+Saving the results
+
+```{r}  
+#| label: gof
+#| eval: true
+#| message: false
+#| warning: false
+saveRDS(
+  list(
+    bfactors = best_model,
+    gwdsp_no_log_patients = res4_gwdsp_var_bnodematch_no_logres,
+    gwdsp_with_log_patients = res4_gwdsp_var_bnodematch,
+    original = res5_original,
+    full_and_facility = res6_full_and_facility,
+    full_and_facility_mcmle = res6_full_and_facility_mcmle,
+    gwdsp_intercept = res6_full_and_logn_gwdsp.84mcmle
+  ),
+  file = "models/03-pooled-ergms-final-results.rds"
+)
+```

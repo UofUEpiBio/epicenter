@@ -1,0 +1,619 @@
+---
+format: pdf
+title: "Supplemental Materials for \"Exponential-Family Random Graph Models in Resident-Healthcare Provider Networks: An Application using data from Long-term Healthcare Facilities in the United States\""
+embed-resources: false
+execute:
+  echo: false
+  message: false
+  warning: false
+---
+
+
+This document presents supplemental analyses for the final pooled bipartite ERGM model in the main manuscript. The emphasis is on model specification, goodness-of-fit (GOF), MCMC diagnostics, block-bootstrap uncertainty estimates, and post-estimation checks of residual variation across states.
+
+The analyses below are annotated to clarify the purpose of each step and to make the reported diagnostics reproducible.
+
+Throughout the prose, "resident" denotes individuals living in the participating long-term care facility units, and "HCP" denotes health care providers. Model terms are reported with the same names used in the model-comparison table of the main manuscript (for example, "Edges x centered log n_R" and "HCP-centered GWDSP"), where `n_R` is the number of residents and `n_H` the number of HCPs in a network. Some saved model objects and coefficient names retain the legacy code labels `n_patients` and `n_hcp`; those labels refer to residents and HCPs, respectively, and are translated to the manuscript names before display.
+
+```{r}
+#| label: load-packages-and-data
+# Loading data from the models
+load('data/network93_f2.RData')
+fits_boot <- readRDS("models/04d-boot-ergms-results.rds")
+naive_fit <- fits_boot$naive_fit
+suppressPackageStartupMessages(source('models/helpers.R'))
+
+# Facility blocks used by the block bootstrap in the 04* documents
+cluster_id <- facility_cluster_id(networks)
+
+# Map the internal ERGM coefficient names onto the term labels used in the
+# manuscript's model-comparison table. `n_R` denotes the number of residents
+# and `n_H` the number of HCPs in a network (legacy code labels: `n_patients`
+# and `n_hcp`).
+TERM_LABELS <- c(
+  "N(1)~edges" = "Edges",
+  "N(I(log(n_patients) - mean(log(n_patients))))~edges" =
+    "Edges x centered log n_R",
+  "N(I(log(n_hcp) - mean(log(n_hcp))))~edges" =
+    "Edges x centered log n_H",
+  "b1factor.type.CNA" = "HCP role: CNA",
+  "b1factor.type.Nurse" = "HCP role: Nurse",
+  "b1factor.type.PT/OT" = "HCP role: PT/OT",
+  "b1factor.type.RT" = "HCP role: RT",
+  "N(1)~gwb1dsp.fixed.0.84" = "HCP-centered GWDSP",
+  "N(I(log(n_patients) - mean(log(n_patients))))~gwb1dsp.fixed.0.84" =
+    "HCP-centered GWDSP x centered log n_R",
+  "N(I(log(n_hcp) - mean(log(n_hcp))))~gwb1dsp.fixed.0.84" =
+    "HCP-centered GWDSP x centered log n_H",
+  "b2factor.dialysis.Yes" = "Resident care need: Dialysis",
+  "b2factor.wound_care.Yes" = "Resident care need: Wound care",
+  "b2factor.bedridden.Yes" = "Resident care need: Bedridden",
+  "b2factor.ventilator.Yes" = "Resident care need: Ventilator",
+  "b2factor.mdro.Yes" = "Resident care need: MDRO",
+  "b2nodematch.diabetes.Yes" = "Resident nodematch: Diabetes",
+  "b2nodematch.mdro.Yes" = "Resident nodematch: MDRO",
+  "b2nodematch.ventilator.Yes" = "Resident nodematch: Ventilator",
+  "b2nodematch.wound_care.Yes" = "Resident nodematch: Wound care",
+  "b2nodematch.bedridden.Yes" = "Resident nodematch: Bedridden",
+  "b1nodematch.type.CNA" = "HCP role nodematch: CNA",
+  "b1nodematch.type.Nurse" = "HCP role nodematch: Nurse",
+  "b1nodematch.type.Other" = "HCP role nodematch: Other",
+  "b1nodematch.type.PT/OT" = "HCP role nodematch: PT/OT",
+  "b1nodematch.type.RT" = "HCP role nodematch: RT",
+  "b1degree0" = "Offset: HCP degree 0",
+  "b2degree0" = "Offset: resident degree 0",
+  "offset(b1degree0)" = "Offset: HCP degree 0",
+  "offset(b2degree0)" = "Offset: resident degree 0"
+)
+
+#' Translate ERGM coefficient names into manuscript term labels
+#' @param x Character vector of internal coefficient/statistic names.
+#' @param wrap Logical. If `TRUE`, break the label after the term family so
+#' that long labels fit in figure facet strips.
+#' @return Character vector of labels; unmatched names are returned as is.
+display_term_label <- function(x, wrap = FALSE) {
+  lab <- unname(TERM_LABELS[x])
+  lab[is.na(lab)] <- x[is.na(lab)]
+  if (wrap)
+    lab <- sub(": ", ":\n", lab, fixed = TRUE)
+  lab
+}
+```
+
+## Observed sufficient statistics in the final model
+
+The table below reports the observed value of each modeled sufficient statistic, aggregated across the 93 observed networks and averaged per network. For the size-interacted terms (those labeled "x centered log n_R" or "x centered log n_H"), the totals are the size-weighted statistics used directly by the fitted multi-ERGM, and the range is computed across the per-network observed contributions to each statistic.
+
+```{r}
+#| label: observed-sufficient-statistics
+obs_stats <- summary(formula(naive_fit))
+stat_order <- names(obs_stats)
+stat_order <- stat_order[!stat_order %in% c("offset(b1degree0)", "offset(b2degree0)")]
+
+log_n_residents <- sapply(networks, \(net) {
+  log(network.size(net) - sum(net %v% "is_actor"))
+})
+log_n_hcp <- sapply(networks, \(net) {
+  log(sum(net %v% "is_actor"))
+})
+
+mean_log_residents <- mean(log_n_residents)
+mean_log_hcp <- mean(log_n_hcp)
+
+per_network_stats <- lapply(seq_along(networks), \(i) {
+  net <- networks[[i]]
+
+  edges <- unname(summary(net ~ edges))
+  gwb1dsp <- unname(summary(net ~ gwb1dsp(0.84, fixed = TRUE)))
+
+  c(
+    "N(1)~edges" = edges,
+    "N(I(log(n_patients) - mean(log(n_patients))))~edges" =
+      unname(edges * (log_n_residents[i] - mean_log_residents)),
+    "N(I(log(n_hcp) - mean(log(n_hcp))))~edges" =
+      unname(edges * (log_n_hcp[i] - mean_log_hcp)),
+    summary(net ~ b1factor("type", levels = c("CNA", "Nurse", "PT/OT", "RT"))),
+    "N(1)~gwb1dsp.fixed.0.84" = gwb1dsp,
+    "N(I(log(n_patients) - mean(log(n_patients))))~gwb1dsp.fixed.0.84" =
+      unname(gwb1dsp * (log_n_residents[i] - mean_log_residents)),
+    "N(I(log(n_hcp) - mean(log(n_hcp))))~gwb1dsp.fixed.0.84" =
+      unname(gwb1dsp * (log_n_hcp[i] - mean_log_hcp)),
+    summary(net ~ b2factor("dialysis", levels = "Yes")),
+    summary(net ~ b2factor("wound_care", levels = "Yes")),
+    summary(net ~ b2factor("bedridden", levels = "Yes")),
+    summary(net ~ b2factor("ventilator", levels = "Yes")),
+    summary(net ~ b2factor("mdro", levels = "Yes")),
+    summary(net ~ b2nodematch("diabetes", alpha = 0.25, diff = TRUE, levels = "Yes")),
+    summary(net ~ b2nodematch("mdro", alpha = 0.25, diff = TRUE, levels = "Yes")),
+    summary(net ~ b2nodematch("ventilator", alpha = 0.25, diff = TRUE, levels = "Yes")),
+    summary(net ~ b2nodematch("wound_care", alpha = 0.25, diff = TRUE, levels = "Yes")),
+    summary(net ~ b2nodematch("bedridden", alpha = 0.25, diff = TRUE, levels = "Yes")),
+    summary(net ~ b1nodematch(
+      "type",
+      alpha = 0.25,
+      diff = TRUE,
+      levels = c("CNA", "Nurse", "Other", "PT/OT", "RT")
+    ))
+  )[stat_order]
+}) |>
+  do.call(what = rbind) |>
+  as.data.table()
+
+obs_stats_tbl <- data.table(
+  statistic = stat_order,
+  observed_total = as.numeric(obs_stats[stat_order])
+)
+
+obs_stats_tbl[, observed_average := observed_total / length(networks)]
+obs_stats_tbl[, range := sprintf(
+  "[%.2f, %.2f]",
+  sapply(statistic, \(x) min(per_network_stats[[x]], na.rm = TRUE)),
+  sapply(statistic, \(x) max(per_network_stats[[x]], na.rm = TRUE))
+)]
+obs_stats_tbl[, statistic := display_term_label(statistic)]
+
+obs_stats_tbl |>
+  knitr::kable(
+    caption = "Observed sufficient statistics in the final multi-ERGM",
+    col.names = c(
+      "Statistic",
+      "Total",
+      "Network Average",
+      "Range"
+    ),
+    digits = 2
+  )
+```
+
+## Network size by state
+
+The first descriptive check examines how network size varies by state. This is useful because the final model includes log-size adjustments, and because uneven state-level size distributions can make residual diagnostics harder to interpret.
+
+```{r}
+#| label: cluster-sizes
+sizes <- lapply(networks, \(n) {
+  data.table(
+    net_id = n %v% "net_id",
+    size = network.size(n),
+    state = n %v% "state",
+    nties = summary(n ~ edges)
+  )
+}) |>
+  rbindlist() |>
+  unique()
+
+# sizes[, net_id := factor(net_id, levels = unique(net_id))]
+# sizes[, size := factor(size, levels = sort(unique(size)))]
+
+ggplot(sizes, aes(y = state, x = size)) +
+  geom_density_ridges(
+    jittered_points = TRUE, position = "raincloud",
+    alpha = 0.9, scale = 0.9
+  ) +
+  # Annotate the number of networks in each state
+  geom_text_repel(
+    data = sizes[, .N, by = state],
+    aes(x = 0, y = state, label = paste0("N=", N)),
+    nudge_x = -0.5, size = 3, color = "black",
+    nudge_y = 0.2
+  ) +
+  labs(
+    x = "Network Size",
+    y = "State",
+    title = "Distribution of Network Sizes by State"
+  ) +
+  theme_minimal()
+
+if (interactive())
+  ggsave("models/05-supplemental-materials-cluster-sizes.png", width = 10, height = 6)
+```
+
+Maryland contributes only six networks, and its network sizes are more irregular than those of the other states. Network size and the observed number of ties are compared below.
+
+```{r}
+ggplot(sizes, aes(x = size, y = nties)) +
+  geom_point() +
+  facet_wrap(~state, ncol = 2) +
+  geom_smooth(method = "lm", formula = y ~ x) +
+  labs(
+    x = "Network Size",
+    y = "Number of Ties",
+    title = "Number of Ties vs Network Size"
+  ) +
+  theme_minimal()
+
+if (interactive())
+  ggsave("models/05-supplemental-materials-nties-vs-size.png", width = 10, height = 6)
+```
+
+## Degree distribution by node type and network size
+
+Degree distributions by state, network size, and node type help determine whether heterogeneity in connectivity is mostly explained by network size and composition or whether additional model terms may be needed.
+
+```{r}
+#| label: degree-distribution
+#| fig-height: 8
+#| fig-width: 6
+degs <- lapply(networks, \(n) {
+  hcp_type <- ifelse(
+    n %v% "Nurse" == 1, "Nurse",
+    ifelse(
+      n %v% "PTOTRT" == 1,
+      "PTOTRT",
+      ifelse(
+        n %v% "Other" == 1, "Other",
+        ifelse(
+          n %v% "CNA" == 1, "CNA",
+          "Unknown"
+        )
+      )
+    )
+  )
+
+  data.table(
+    net_id = n %v% "net_id",
+    degree = sna::degree(n),
+    is_actor = n %v% "is_actor",
+    size = network.size(n),
+    state = n %v% "state",
+    type_hcp = hcp_type,
+    type = n %v% "type"
+  )
+}) |> rbindlist()
+
+degs[type %in% c("Physician", "PA/NP"), type := "Other"]
+
+degs[is_actor == FALSE, type_hcp := "Resident"]
+degs[, net_id := factor(net_id, levels = unique(net_id))]
+degs[, size := factor(size, levels = sort(unique(size)))]
+degs[, type_hcp := factor(type_hcp)]
+
+degs[, is_actor := ifelse(is_actor, "HCP", "Resident")]
+
+degs |>
+  ggplot(aes(y = size, x=degree, fill = is_actor)) +
+  geom_density_ridges(
+    jittered_points = TRUE, position = "raincloud",
+    alpha = 0.9, scale = 0.9
+  ) +
+  facet_wrap(~state, scales = "free_y", ncol = 2) +
+  labs(
+    x = "Degree",
+    y = "Network size (sorted by, not at scale)",
+    fill = "Node type"
+  ) +
+  theme_minimal()
+
+if (interactive())
+  ggsave("models/05-supplemental-materials-degree-distribution.png", width = 6, height = 10)
+```
+
+The table below summarizes HCP degree after scaling by the actual network size. This puts degree values from networks of different sizes on a more comparable scale.
+
+```{r}
+degs[, size_num := as.numeric(as.character(size))]
+degs[is_actor == "HCP", .(
+  mean_degree = mean(degree/size_num),
+  median_degree = median(degree/size_num),
+  sd_degree = sd(degree/size_num),
+  ci = sprintf(
+    "[%.2f, %.2f]",
+    quantile(degree/size_num, probs = c(0.025)),
+    quantile(degree/size_num, probs = c(0.975))
+  )
+), by = .(state)][order(mean_degree)] |>
+  knitr::kable(
+    caption = "Summary of degree distribution for HCPs across states (scaled by size)",
+    digits = 2
+  )
+```
+
+```{r}
+#| label: degree-distribution-by-type
+#| fig-height: 8
+#| fig-width: 6
+degs |>
+  ggplot(aes(y = state, x=degree)) +
+  geom_density_ridges(
+    jittered_points = TRUE, position = "raincloud",
+    alpha = 0.9, scale = 0.9
+  ) +
+  facet_wrap(~type, scales = "free_y", ncol = 2) +
+  labs(
+    x = "Degree",
+    y = "State",
+    title = "Degree distribution by node type and state"
+  ) +
+  theme_minimal()
+
+if (interactive())
+  ggsave("models/05-supplemental-materials-degree-distribution-by-type.png", width = 6, height = 6)
+```
+
+Resident concurrency, measured with `b2concurrent()`, is also examined across network sizes and states.
+
+```{r}
+dat_b2concurrent <- lapply(networks, \(n) {
+
+  data.table(
+    net_id = n %v% "net_id",
+    b2concurrent = summary(n ~ b2concurrent()),
+    size = network.size(n),
+    state = n %v% "state"
+  )
+  
+}) |>
+  rbindlist() |>
+  unique()
+
+dat_b2concurrent[, net_id := factor(net_id, levels = unique(net_id))]
+# dat_b2concurrent[, size := factor(size, levels = sort(unique(size)))]
+
+dat_b2concurrent |>
+  ggplot(aes(y = size, x=b2concurrent, color = state)) +
+  geom_jitter() +
+  geom_smooth(method = "lm", formula = y ~ x) +
+  labs(
+    x = "Resident concurrency",
+    y = "Network Size",
+    color = "State",
+    title = "Resident concurrency vs network size"
+  ) +
+  theme_minimal()
+
+if (interactive())
+  ggsave("models/05-supplemental-materials-b2concurrent.png", width = 6, height = 6)
+```
+
+The relationship with network size is approximately linear. This suggests that the model can capture much of this variation through size-adjusted terms, without requiring an additional `log(n_hcp)` adjustment for this statistic.
+
+## Final model
+
+The final model includes log-size adjustments for the Edges term and for the HCP-centered geometrically weighted dyadwise shared-partner term (HCP-centered GWDSP, `gwb1dsp` in code). Specifically, the model allows both terms to vary with centered log counts of residents (`log n_R`) and HCPs (`log n_H`). The naive model-based standard errors and the bootstrap-corrected standard errors from the 200 SA replicates are compared in the final-model table of the main manuscript.
+
+The reported point estimates are MC-MLE coefficients; the stochastic-approximation (SA) algorithm is used only as the estimator applied inside each bootstrap replicate, never for point estimation.
+
+The bootstrap standard errors come from a *block* bootstrap that resamples facility-unit groups rather than individual networks. Each network is a facility unit observed on a given date, and most units were visited again three to six months later, so the `r length(networks)` networks come from `r length(unique(cluster_id))` facility-unit groups; two units in the same facility are treated as separate groups, and `r sum(table(cluster_id) == 2)` of the groups contain exactly two networks. In each replicate we draw groups with replacement and include every network belonging to a drawn group, so repeat visits to the same unit are always drawn together and the within-unit correlation is carried into the resampling distribution. Because groups differ in how many networks they contribute, the number of networks per replicate is not constant.
+
+Several terms that are statistically significant under the naive model -- the HCP-size edge interaction (Edges x centered log n_H), HCP role: CNA, the resident nodematch effects for diabetes and ventilator use, and the Other and RT HCP role nodematch effects -- lose significance when the larger bootstrap standard errors are used. This pattern underscores the importance of accounting for the correlation between repeat visits to the same unit, and more generally for non-independence across networks, when interpreting uncertainty. The table showing the full set of results can be found in the main manuscript.
+
+## Goodness-of-fit diagnostics
+
+These goodness-of-fit statistics compare observed network features with values generated under the fitted model, providing a direct check of whether the model reproduces the main structural features of the observed networks.
+
+```{r}
+#| label: load-gof
+fn <- "models/05-supplemental-materials-gof.rds"
+if (file.exists(fn)) {
+  gof_final <- readRDS(fn)
+}else {
+  gof_final <- gofN(naive_fit)
+  saveRDS(gof_final, fn)
+}
+```
+
+For each statistic, points close to the red 45-degree line below indicate close agreement between observed and fitted values.
+
+```{r}
+#| label: gof-obs-vs-fitted
+#| warning: false
+#| fig-height: 6
+#| fig-width: 8
+vars <- names(gof_final) 
+
+# Keep interpretable fitted statistics and exclude offsets.
+vars <- vars[!grepl("b1dsp|b.degree0", vars)]
+
+# Assemble observed and fitted values for plotting.
+plot_data <- lapply(vars, \(v) {
+  data.table(
+    variable = v,
+    observed = gof_final[[v]]$observed,
+    fitted = gof_final[[v]]$fitted
+  )
+}) |>
+  rbindlist()
+
+# Re-label variables using the manuscript's term names (see TERM_LABELS).
+plot_data$variable <- display_term_label(plot_data$variable, wrap = TRUE)
+
+ggplot(plot_data, aes(x = observed, y = fitted)) +
+  geom_point() +
+  facet_wrap(~variable, scales = "free") +
+  labs(x = "Observed", y = "Fitted") +
+  theme_minimal() +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed")
+
+if (interactive())
+  ggsave("models/05-supplemental-materials-gof-obs-vs-fitted.pdf", width = 8, height = 6)
+
+```
+
+## Observed network features
+
+We summarize network size, the number of health care providers (HCPs), and mean HCP degree to contextualize the heterogeneity that the final model is intended to capture.
+
+```{r}
+#| label: network-feats
+# Mean degree
+netsapply <- function(f) {
+  sapply(networks, \(x) {
+    f(x)
+  })
+}
+network_stats <- data.frame(
+  size = sapply(networks, network.size),
+  n_hcp = netsapply(\(x) {sum(x %v% "is_actor")}),
+  n_mdro = netsapply(\(x) {sum((x %v% "mdro") == "Yes")}),
+  n_dialysis = netsapply(\(x) {sum((x %v% "dialysis") == "Yes")}),
+  n_wound_care = netsapply(\(x) {sum((x %v% "wound_care") == "Yes")}),
+  n_ventilator = netsapply(\(x) {sum((x %v% "ventilator") == "Yes")}),
+  n_bedridden = netsapply(\(x) {sum((x %v% "bedridden") == "Yes")}),
+  # Now, tabulating the network composition
+  n_nurses = netsapply(\(x) {sum((x %v% "Nurse") == 1)}),
+  n_PTOTRT = netsapply(\(x) {sum((x %v% "PTOTRT") == 1)}),
+  hcp_mean_degree = netsapply(\(x) {mean(sna::degree(x)[x %v% "is_actor"])})
+)
+
+# Size distribution
+fig_size <- ggplot(network_stats, aes(x = size)) +
+  geom_histogram() +
+  labs(
+    x = "Network Size",
+    y = "Count",
+    title = "Size Distribution"
+  ) +
+  theme_minimal()
+
+# Size vs number of HCPs
+fig_size_hcp <- ggplot(network_stats, aes(x = size, y = n_hcp)) +
+  geom_point() +
+  labs(
+    x = "Network Size",
+    y = "Number of HCPs",
+    title = "Number of HCPs"
+  ) +
+  theme_minimal()
+
+# Size vs HCP mean degree
+fig_size_hcp_degree <- ggplot(network_stats, aes(x = size, y = hcp_mean_degree)) +
+  geom_point() +
+  labs(
+    x = "Network Size",
+    y = "Mean HCP Degree",
+    title = "Mean HCP Degree"
+  ) +
+  theme_minimal()
+
+# Combine both figures into a single ggplot object
+library(patchwork)
+fig_size + fig_size_hcp + fig_size_hcp_degree
+ggsave("models/05-supplemental-materials-network-feats.png", width = 9*.75, height = 3*.75)
+
+```
+
+## MCMC diagnostics
+
+To assess the adequacy of the Markov Chain Monte Carlo (MCMC) estimation procedure, we present standard MCMC diagnostic plots for the final model. These plots are used to assess mixing, stationarity, and whether the simulated statistics are centered near the observed statistics.
+
+```{r}
+#| label: mcmc-diagnostics
+#| fig-height: 10 
+#| results: hide
+joint_geweke <- suppressWarnings(ergm::geweke.diag.mv(naive_fit$sample)$p.value[1])
+op <- par(mfrow = c(3, 2))
+if (interactive())
+  pdf("models/05-supplemental-materials-mcmc-diagnostics.pdf", width = 8, height = 10)
+mcmc.diagnostics(naive_fit, which = "plots")
+par(op)
+if (interactive())
+  dev.off()
+```
+
+The final MC-MLE fit had a Joint Geweke diagnostic p-value of `r round(joint_geweke, 2)`, and the trace and density plots show sampled sufficient statistics mixing around their observed values.
+
+We further investigate model fit by examining the square root of the absolute standardized Pearson residuals, `sqrt(|residual|)`, for the Edges and HCP-centered GWDSP terms across networks. This transformation makes large residuals easier to see while preserving their relative magnitude. Networks with transformed residuals exceeding 2 are labeled as potential outliers.
+
+```{r}
+#| label: regress-networks
+#| fig-height: 6
+#| fig-width: 8
+term_edges <- make.names(grep("^N\\(1\\)~edges$", names(gof_final), value = TRUE))
+term_gwb1dsp <- make.names(grep("^N\\(1\\)~gwb1dsp", names(gof_final), value = TRUE))
+
+stopifnot(length(term_edges) == 1, length(term_gwb1dsp) == 1)
+
+term_edges <- term_edges[[1]]
+term_gwb1dsp <- term_gwb1dsp[[1]]
+
+gg_err <- plot_gof(
+  gof_final,
+  networks,
+  term = term_edges,
+  ylab = expression(sqrt(abs("Std. Pearson Res. (Edges)")))
+)
+
+gg_gwb1dsp <- plot_gof(
+  gof_final,
+  networks,
+  term = term_gwb1dsp,
+  ylab = expression(sqrt(abs("Std. Pearson Res. (HCP-centered GWDSP)")))
+)
+
+fig_gof_residuals <- patchwork::wrap_plots(
+  gg_err$fig,
+  gg_gwb1dsp$fig,
+  ncol = 1
+)
+
+if (interactive()) {
+  ggsave(
+    "models/05-supplemental-materials-errs.pdf",
+    plot = fig_gof_residuals,
+    width = 8, height = 6
+  )
+} else {
+  print(fig_gof_residuals)
+}
+```
+
+We also test whether transformed edge-count residuals vary systematically by state. Because the network-level residuals may not be independent, we use a bootstrap regression to estimate uncertainty for the state contrasts.
+
+```{r}
+set.seed(3312)
+dat_err_edges <- gg_err$dat[term == term_edges]
+
+# Initial fit
+boot_fit <- lm(error ~ factor(state), data = dat_err_edges)
+
+# Bootstrap
+n_obs <- nrow(dat_err_edges)
+boot_err <- replicate(
+  1000, {
+    idx <- sample(n_obs, n_obs, replace = TRUE)
+    lm(error ~ factor(state), data = dat_err_edges[idx, ]) |> 
+      coef()
+})
+
+# Collecting the results
+boot_err <- do.call(rbind, list(boot_err)) |>
+  t() 
+
+# Computing sds
+boot_err_sds <- apply(boot_err, 2, sd)
+
+# Calculating pvalues
+boot_err_pvals <- 2 * (1 - pnorm(abs(coef(boot_fit)) / boot_err_sds))
+
+# 1. Extract original coefficients (excluding the Intercept)
+# We only want to test the 'state' variables
+beta_orig <- coef(boot_fit)[-1] 
+
+# 2. Compute the variance-covariance matrix of the bootstrap estimates
+# We exclude the first column (the Intercept) to match beta_orig
+boot_vcov <- cov(boot_err[, -1])
+
+# 3. Compute the Wald Chi-Square Statistic
+# Formula: W = t(beta) %*% solve(Sigma) %*% beta
+W_stat <- t(beta_orig) %*% solve(boot_vcov) %*% beta_orig
+
+# 4. Degrees of freedom = number of parameters being tested
+df <- length(beta_orig)
+
+# 5. Compute the p-value using the Chi-Square distribution
+omnibus_pval <- pchisq(as.numeric(W_stat), df = df, lower.tail = FALSE)
+
+data.table(
+  test = "Bootstrap omnibus Wald test",
+  chi_square = as.numeric(W_stat),
+  df = df,
+  p_value = omnibus_pval
+) |>
+  knitr::kable(
+    caption = "Bootstrap test for state differences in transformed edge-count residuals",
+    digits = 3
+  )
+```
+
+The omnibus Wald test gives a chi-square statistic of 10.84 (df = 6, p = 0.094). Thus, there is no statistically significant evidence at alpha = 0.05 that edge-count prediction errors differ by state. This supports the interpretation that the final model captures state-level variation in edge counts reasonably well, even without an explicit state interaction, while leaving open the possibility of weak residual state differences.
+

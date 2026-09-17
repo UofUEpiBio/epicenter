@@ -1,10 +1,77 @@
-.Rproj.user
+.Rproj.user/
 .Rhistory
 .RData
 .Ruserdata
 .DS_Store
-*.RData
-*.pdf
-*.zip
-*.rds
+**/.DS_Store
+
+# Local editor/devcontainer spillover
+.vscode/
+models/.gitignore
+
+# Quarto and rendered manuscript outputs
+.quarto/
+**/*.quarto_ipynb
 *_cache/
+*_files/
+README.html
+README_files/
+models/*.html
+models/*.pdf
+models/*.docx
+models/*.md
+models/*_files/
+models/*_cache/
+models/*.rmarkdown
+
+# Saved model, cache, and data objects
+*.RData
+*.Rdata
+*.rda
+*.Rda
+*.rds
+*.RDS
+*.data
+*.dat
+*.csv
+*.tsv
+
+# Local archives, containers, and HPC artifacts
+*.pdf
+*.docx
+*.zip
+*.sif
+.singularity/
+
+# Review/provenance material kept outside the active supplement build
+review/
+
+# Generated analysis figures
+*.png
+*.svg
+models/*.tex
+models/*.log
+models/*.txt
+models/*-boot-ergms-cache/
+models/02-individual_ergms_fits/
+models/03-pooled-ergms-rds/
+
+# Superseded analyses and side projects, kept locally but out of the
+# submission repository (see README "Repository layout")
+abm/
+chong/
+fig/
+LTCF_final_report/
+ContainerFile
+ergm-terms.svg
+summary-stats.R
+
+# Convenience symlinks that point back into the repository
+data/data
+models/data
+models/models
+
+# HPC job scripts and their logs
+*.sh
+*.out
+*.err

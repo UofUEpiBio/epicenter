@@ -1,0 +1,207 @@
+---
+title: "Bootstrapping ERGMs (blocked at the facility level)"
+format: html
+editor_options: 
+  markdown: 
+    wrap: 80
+date: 2026-06-16
+author:
+  - George G. Vega Yon
+embed-resources: true
+---
+
+8/28/2023
+
+This document bootstraps the model with state-level intercepts
+(`facility_state`). Replicates are drawn with a *block* bootstrap: instead of
+resampling networks independently, we resample *facilities*, so whenever a
+facility is drawn all of the networks belonging to it (its units, across dates)
+enter the replicate together. This accounts for the within-facility correlation
+that a naive network-level bootstrap ignores. The same blocking is used in
+`04b-boot-ergms.qmd` and `04d-boot-ergms.qmd`.
+
+```{r}
+source("models/helpers.R")
+load('data/network93_f2.RData')
+fits <- readRDS("models/03-pooled-ergms-final-results.rds")
+```
+
+## Defining the blocking variable
+
+Each network corresponds to a `state`/`Fac_Name`/`Fac_Unit`/date combination, so
+a single facility can contribute several networks. We block on `state` +
+`Fac_Name` since facility names are not guaranteed to be unique across states.
+The blocking variable is built by `facility_cluster_id()` in
+`models/helpers.R`, so every `04*` document blocks identically.
+
+```{r}
+cluster_id <- facility_cluster_id(networks)
+
+# How many networks per facility?
+table(table(cluster_id))
+
+c(
+  n_networks = length(networks),
+  n_clusters = length(unique(cluster_id))
+)
+```
+
+## Evaluating in the final model
+
+```{r}
+# Naive 9 cluster (for now)
+cl <- parallel::makeForkCluster(39)
+
+set.seed(333)
+ans <- boot_ergm(
+  networks = networks,
+  ergm_formula =
+    Networks(nets) ~
+      N(~ edges,
+        ~
+          I(log(n_patients) - mean(log(n_patients))) + 
+          I(log(n_hcp) - mean(log(n_hcp))) +
+          facility_state
+      ) + b1factor("type", levels = -3) + 
+    gwb1dsp(fixed = FALSE, cutoff = 100) + b2factor("dialysis") + 
+    b2factor("wound_care") + b2factor("bedridden") + b2factor("ventilator") + 
+    b2factor("mdro") + b2nodematch("diabetes", alpha = 0.25, 
+    diff = TRUE, levels = 2) + b2nodematch("mdro", alpha = 0.25, 
+    diff = TRUE, levels = 2) + b2nodematch("ventilator", alpha = 0.25, 
+    diff = TRUE, levels = 2) + b2nodematch("wound_care", alpha = 0.25, 
+    diff = TRUE, levels = 2) + b2nodematch("bedridden", alpha = 0.25, 
+    diff = TRUE, levels = 2) + b1nodematch("type", alpha = 0.25, 
+    diff = TRUE) + offset(b1degree(0)) + offset(b2degree(0)),
+  control = control.ergm(
+    seed = 1123,
+    # fits$gwdsp_with_log_patients |> coef() |> unname() |> dput()
+    main.method = "Stochastic-Approximation",
+    SA.samplesize = 1024 * 8,
+    SA.burnin = 1024 * 64, # Double
+    SA.interval = 1024 * 8,
+    SA.phase3_n = 1024 * 4,
+    # We don't care about these errors, or evaluating the log-likelihood
+    MCMC.addto.se = FALSE,
+    MCMC.return.stats = FALSE
+  ),
+  offset.coef = c(-Inf, -Inf),
+  nboot = 200,
+  cluster_id = cluster_id,
+  cl = cl,
+  cache = "models/04c-boot-ergms-cache"
+)
+parallel::stopCluster(cl)
+```
+
+
+## Processing the bootstrap results
+
+
+### Intercept model
+
+```{r}
+#| eval: true
+# Listing all the bootstrap results
+boot_res <- list.files(
+  "models/04c-boot-ergms-cache",
+  pattern = "\\.rds$",
+  full.names = TRUE
+  ) |> 
+  lapply(readRDS)
+
+# Replicates that failed are stored as error objects
+boot_res <- boot_res[!sapply(boot_res, inherits, what = "error")]
+
+# Keeping only those with valid results
+boot_res <- boot_res[sapply(boot_res, length) == 32] 
+
+boot_res <- do.call(what = rbind, boot_res)
+
+# Keeping smaller than 20
+n_terms <- ncol(boot_res)
+boot_res <- boot_res[apply(boot_res[, c(1:(n_terms-2))], 1, \(x) all(abs(x) < 20)), ]
+
+# Generating a regression table
+naive_fit <- fits$full_and_facility_mcmle
+boot_res_mean <- apply(boot_res, 2, mean, na.rm = TRUE)
+boot_res_sd <- apply(boot_res, 2, sd, na.rm = TRUE)
+pvalues <- 2 * (1 - pnorm(abs(coef(naive_fit)) / boot_res_sd))
+```
+
+### No intercept model
+
+```{r}
+#| eval: true
+# Listing all the bootstrap results
+boot_res_no_intercept <- list.files(
+  "models/04b-boot-ergms-cache",
+  pattern = "\\.rds$",
+  full.names = TRUE
+  ) |> 
+  lapply(readRDS)
+
+# Replicates that failed are stored as error objects
+boot_res_no_intercept <- boot_res_no_intercept[
+  !sapply(boot_res_no_intercept, inherits, what = "error")
+]
+
+boot_res_no_intercept <- do.call(what = rbind, boot_res_no_intercept)
+
+# Keeping smaller than 20
+n_terms <- ncol(boot_res_no_intercept)
+boot_res_no_intercept <- boot_res_no_intercept[apply(boot_res_no_intercept[, c(1:(n_terms-2))], 1, \(x) all(abs(x) < 20)), ]
+
+# Generating a regression table
+naive_fit_no_intercept <- fits$gwdsp_with_log_patients
+boot_no_intercept_res_mean <- apply(boot_res_no_intercept, 2, mean, na.rm = TRUE)
+boot_no_intercept_res_sd <- apply(boot_res_no_intercept, 2, sd, na.rm = TRUE)
+pvalues_no_intercept <- 2 * (1 - pnorm(abs(coef(naive_fit_no_intercept)) / boot_no_intercept_res_sd))
+```
+
+```{r}
+
+texreg::screenreg(
+  list(
+    'No intercept (naive)'=fits$gwdsp_with_log_patients,
+    'No intercept (block boot)'=fits$gwdsp_with_log_patients,
+    'Intercept (naive)'=naive_fit,
+    'Intercept (block boot)'=naive_fit
+    ),
+  override.se = list(NULL, boot_no_intercept_res_sd, NULL, boot_res_sd),
+  override.pvalues = list(NULL, pvalues_no_intercept, NULL, pvalues),
+  single.row = TRUE
+)
+```
+
+
+```{r}
+#| eval: true
+texreg::screenreg(
+  list(
+    'No intercept (block boot)'=fits$gwdsp_with_log_patients,
+    'Intercept (block boot)'=naive_fit
+    ),
+  override.se = list(boot_no_intercept_res_sd, boot_res_sd),
+  override.pvalues = list(pvalues_no_intercept, pvalues),
+  single.row = TRUE,
+  file = "models/04c-boot-ergms-results.txt"
+)
+
+saveRDS(
+  list(
+    bootstrap_results = boot_res,
+    bootstrap_means = boot_res_mean,
+    bootstrap_sds = boot_res_sd,
+    pvalues = pvalues,
+    naive_fit = naive_fit,
+    bootstrap_results_no_intercept = boot_res_no_intercept,
+    bootstrap_means_no_intercept = boot_no_intercept_res_mean,
+    bootstrap_sds_no_intercept = boot_no_intercept_res_sd,
+    pvalues_no_intercept = pvalues_no_intercept,
+    cluster_id = cluster_id
+  ),
+  file = "models/04c-boot-ergms-results.rds"
+)
+```
+
+
