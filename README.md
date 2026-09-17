@@ -1,4 +1,4 @@
-# Epicenter
+# Code for "Exponential-Family Random Graph Models in Resident-Healthcare Provider Networks: An Application using data from Long-term Healthcare Facilities in the United States"
 
 Analysis workflow for the paper on bipartite contact networks between health
 care providers (HCPs) and residents in long-term care facilities in the United
